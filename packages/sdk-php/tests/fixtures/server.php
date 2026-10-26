@@ -53,6 +53,14 @@ if ($method === 'POST' && $path === '/v1/assistants') {
 
 if ($method === 'POST' && $path === '/v1/conversations') {
     $body = json_decode((string) file_get_contents('php://input'), true);
+    if (($body['assistant_id'] ?? '') === '22222222-2222-4222-8222-222222222222') {
+        json_response(403, ['error' => 'sensitive-upstream-secret']);
+        return;
+    }
+    if (($body['assistant_id'] ?? '') === '11111111-1111-4111-8111-111111111111') {
+        json_response(201, ['id' => uniqid('conversation-', true)]);
+        return;
+    }
     json_response(201, ['id' => 'conversation-1', 'assistant_id' => $body['assistant_id'] ?? 'assistant-1']);
     return;
 }
@@ -111,6 +119,20 @@ if ($method === 'POST' && $path === '/v1/documents') {
         'created_at' => '2026-10-22T00:00:00Z',
         'ingestion_state' => 'queued',
     ]);
+    return;
+}
+
+if ($method === 'POST' && $path === '/v1/widget/tokens') {
+    $body = json_decode((string) file_get_contents('php://input'), true);
+    if (($body['subject'] ?? '') === 'token-failure') {
+        json_response(403, ['error' => 'sensitive-token-error']);
+        return;
+    }
+    if (($body['subject'] ?? '') === 'invalid-token-response') {
+        json_response(201, ['token' => 'sensitive', 'expires_at' => 'invalid']);
+        return;
+    }
+    json_response(201, ['token' => base64_encode(json_encode($body)), 'expires_at' => '2099-01-01T00:00:00Z']);
     return;
 }
 

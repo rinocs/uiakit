@@ -113,3 +113,20 @@ threshold the gateway responds `429` with `Retry-After: 60`.
   short limits exposure.
 - The token cannot create other tokens (`widget-tokens:write` is not in the role
   `widgets`).
+## Framework integrations
+
+Use the existing `<uai-chat>` Web Component in both frameworks, with a
+server-side session endpoint and the shared `connectChat` browser helper:
+
+- [Laravel](laravel.md): Blade component, CSRF-aware Vite entry, authenticated
+  and throttled session route using the PHP SDK.
+- [FastAPI](fastapi.md): installable `uai-fastapi` router, required host
+  authentication dependency and runnable repository example.
+
+The endpoint creates a fresh conversation for the server-configured assistant
+and mints a token bound to the authenticated subject and configured page origin.
+Only `{baseUrl, token, conversationId, expiresAt}` reaches the browser, with
+`Cache-Control: no-store`. Assistant IDs and conversation IDs supplied by the
+browser cannot change these bindings. The gateway still enforces its exact
+`UAI_WIDGET_ORIGINS` allowlist for browser message/SSE traffic. Tokens expire;
+a new bootstrap starts a new conversation rather than restoring earlier history.

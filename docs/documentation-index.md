@@ -72,7 +72,8 @@ implementation plans and the acceptance report.
 - [Integrations](integrations.md) — SDK contract matrix and coverage.
 - [Console](console.md) — SvelteKit admin console.
 - [Widgets](widgets.md) — widget tokens, CORS and rate limits.
-- [Laravel](laravel.md) — server-side integration.
+- [Laravel](laravel.md) — server-side integration and Blade chat widget.
+- [FastAPI](fastapi.md) — authenticated chat widget sessions and runnable example.
 - [Observability](observability.md) — OpenTelemetry, metrics and logs.
 - [Security operations](security-operations.md) — TLS, secrets, egress,
   rate limits and deployment hardening.

@@ -87,3 +87,36 @@ npm run check
 I test coprono sanitizer, link pericolosi, SSE simulato, citazioni, cancellazione,
 EOF incompleto, tastiera e ruoli ARIA. Le demo sono in
 [examples/widget](../../examples/widget).
+
+## Laravel e FastAPI
+
+Entrambe le integrazioni riusano questo componente. Il backend ospitante
+crea una conversazione e un token widget temporaneo dopo aver verificato utente
+e origine; il browser riceve solo la configurazione limitata:
+
+```js
+import { connectChat } from '@universal-ai-kit/chat-widget';
+
+const chat = document.querySelector('uai-chat');
+chat.setConfig({ title: 'Supporto', theme: 'dark' });
+await connectChat(chat, {
+  sessionUrl: '/widget/session',
+  // Per Laravel: sessionUrl: '/uai/widget/session' e l'header CSRF dell'app.
+  headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '' },
+});
+```
+
+`connectChat(element, { sessionUrl, headers?, signal? })` invia un POST JSON
+con credenziali same-origin e rifiuta URL di sessione esterni e redirect.
+L'endpoint deve restituire `{ baseUrl, token, conversationId, expiresAt }`;
+`token` deve essere un token `uai_widget_…`. Solo i campi di connessione validati
+vengono applicati; titolo, tema e callback già configurati restano attivi.
+Il metodo restituisce la sessione validata. Gli errori non espongono corpi
+upstream né credenziali. Non memorizzare il risultato in localStorage o nei log.
+
+Ogni bootstrap crea una nuova conversazione. Alla scadenza del token ricarica
+il widget/la pagina; questa integrazione iniziale non ripristina cronologia
+né rinnova automaticamente una conversazione. Gli endpoint devono essere
+autenticati, limitati nelle richieste e protetti dalle regole CSRF dell'app.
+
+Guide complete: [Laravel](../../docs/laravel.md), [FastAPI](../../docs/fastapi.md).

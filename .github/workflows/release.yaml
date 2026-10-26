@@ -53,6 +53,7 @@ jobs:
             apps/runtime/requirements*.txt
             packages/core/pyproject.toml
             packages/plugin-sdk/pyproject.toml
+            packages/fastapi/pyproject.toml
             plugins/examples/hello/pyproject.toml
       - uses: actions/setup-node@v4
         with:
@@ -70,7 +71,7 @@ jobs:
       - name: Install locked dependencies
         run: |
           python -m pip install -r apps/runtime/requirements-dev.txt \
-            packages/core packages/plugin-sdk plugins/examples/hello
+            packages/core packages/plugin-sdk packages/fastapi plugins/examples/hello
           npm ci --prefix packages/sdk-typescript
           npm ci --prefix packages/chat-widget
           npm ci --prefix apps/console

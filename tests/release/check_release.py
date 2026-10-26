@@ -25,6 +25,7 @@ PYPROJECTS = [
     'apps/worker/pyproject.toml',
     'packages/core/pyproject.toml',
     'packages/plugin-sdk/pyproject.toml',
+    'packages/fastapi/pyproject.toml',
     'plugins/examples/hello/pyproject.toml',
 ]
 PACKAGE_JSONS = [

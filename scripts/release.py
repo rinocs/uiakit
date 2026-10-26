@@ -38,6 +38,7 @@ REQUIREMENTS = [
 PYTHON_PACKAGES = [
     'packages/core',
     'packages/plugin-sdk',
+    'packages/fastapi',
     'plugins/examples/hello',
 ]
 NPM_PACKAGES = [
@@ -86,7 +87,7 @@ GO_LICENSES = {
 FIRST_PARTY = [
     ('universal-ai-kit', 'application'), ('uai-core', 'library'),
     ('uai-runtime', 'application'), ('uai-worker', 'application'),
-    ('uai-plugin-sdk', 'library'), ('uai-plugin-hello', 'library'),
+    ('uai-fastapi', 'library'), ('uai-plugin-sdk', 'library'), ('uai-plugin-hello', 'library'),
     ('@universal-ai-kit/sdk', 'library'), ('@universal-ai-kit/chat-widget', 'library'),
     ('@universal-ai-kit/console', 'application'),
     ('github.com/universal-ai-kit/sdk-go', 'library'),

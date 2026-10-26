@@ -24,7 +24,7 @@ models, retrieval or deployment.
 - **Operable** — graceful shutdown, durable jobs and recovery, bounded rate
   limits, retention, backups, observability and upgrade/rollback runbooks.
 - **Integration-ready** — TypeScript, Go and PHP SDKs, a Web Component widget,
-  a SvelteKit console and a Laravel provider.
+  a SvelteKit console, Laravel integration and a FastAPI widget adapter.
 
 ## Architecture
 

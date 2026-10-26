@@ -1,6 +1,6 @@
-.PHONY: test test-capacity test-contracts test-release test-security test-go test-python test-typescript test-widget test-console test-console-browser test-go-sdk test-php build-packages e2e e2e-upgrade e2e-two-instances e2e-restore config storage-s3 vector-store-qdrant plugin-sdk-test plugin-sdk-check plugin-sdk-build release-inventory release-packages release-images release-manifest release-check release-dry-run docs docs-serve
+.PHONY: test test-capacity test-contracts test-release test-security test-go test-python test-typescript test-fastapi test-widget test-console test-console-browser test-go-sdk test-php build-packages e2e e2e-upgrade e2e-two-instances e2e-restore config storage-s3 vector-store-qdrant plugin-sdk-test plugin-sdk-check plugin-sdk-build release-inventory release-packages release-images release-manifest release-check release-dry-run docs docs-serve
 
-test: test-capacity test-contracts test-release test-security test-go test-python test-typescript test-widget test-console test-go-sdk test-php
+test: test-capacity test-contracts test-release test-security test-go test-python test-typescript test-fastapi test-widget test-console test-go-sdk test-php
 
 test-capacity:
 	python3 tests/performance/check_baseline.py tests/performance/baseline.json
@@ -25,6 +25,9 @@ test-python:
 
 test-typescript:
 	cd packages/sdk-typescript && npm run check && npm run build
+
+test-fastapi:
+	PYTHONPATH=packages/fastapi/src python -m pytest packages/fastapi/tests -q
 
 test-widget:
 	cd packages/chat-widget && npm run check

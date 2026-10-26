@@ -27,6 +27,8 @@ final class UniversalAiKitServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->loadViewsFrom(__DIR__ . '/../../resources/views', 'universal-ai-kit');
+
         if ($this->app->runningInConsole()) {
             $this->publishes([
                 __DIR__ . '/../../config/universal-ai-kit.php' => config_path('universal-ai-kit.php'),

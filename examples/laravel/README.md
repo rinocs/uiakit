@@ -1,32 +1,11 @@
-# Laravel example
+# Laravel examples
 
-1. Add the package to the Laravel application (path repository while developing):
+Follow [the Laravel integration guide](../../docs/laravel.md) to install the PHP
+SDK and shared browser widget in an existing authenticated Laravel application.
 
-```json
-{
-  "repositories": [
-    { "type": "path", "url": "../../packages/sdk-php" }
-  ],
-  "require": {
-    "universal-ai-kit/sdk-php": "*"
-  }
-}
-```
+- `routes/web.php`: private, CSRF-protected widget session endpoint with auth and throttling.
+- `resources/js/chat.js`: Vite module connecting every Blade chat component using the host CSRF token.
+- `routes/api.php`: existing authenticated server-side streaming proxy example; its API is unchanged.
 
-2. Publish the config (optional) and set server-side environment values:
-
-```bash
-php artisan vendor:publish --tag=universal-ai-kit-config
-```
-
-```dotenv
-UAI_BASE_URL=http://gateway:8080
-UAI_API_KEY=uai_server_side_secret
-UAI_TIMEOUT_MS=30000
-```
-
-3. Copy `routes/api.php` into the application's API routes (or merge the route).
-
-The browser calls `POST /api/uai/chat` with the conversation id, content and an
-idempotency key. It never receives `UAI_API_KEY`; the Laravel server holds the
-credential and opens the gateway SSE stream server-side.
+The package provider registers no routes. Merge the chosen example into the
+host application and retain its web middleware, authentication and authorization.

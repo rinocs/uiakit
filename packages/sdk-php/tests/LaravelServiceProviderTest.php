@@ -13,6 +13,30 @@ use UniversalAIKit\Laravel\UniversalAiKitServiceProvider;
 
 final class LaravelServiceProviderTest extends TestCase
 {
+    public function testReadsDotenvValuesWithoutPutenv(): void
+    {
+        $previous = $_ENV;
+        $previousServer = $_SERVER;
+        try {
+            // Laravel's default dotenv adapter writes these globals, not putenv.
+            $_ENV['UAI_WIDGET_ORIGIN'] = 'https://dotenv-only.test';
+            $_ENV['UAI_WIDGET_ASSISTANT_ID'] = '11111111-1111-4111-8111-111111111111';
+            $_ENV['UAI_WIDGET_TTL_SECONDS'] = '900';
+            $_ENV['UAI_API_KEY'] = 'dotenv-server-key';
+            unset($_ENV['UAI_WIDGET_PUBLIC_BASE_URL']);
+            $_SERVER['UAI_WIDGET_PUBLIC_BASE_URL'] = 'https://public-gateway.test';
+            $config = require __DIR__ . '/../config/universal-ai-kit.php';
+            self::assertSame('https://dotenv-only.test', $config['widget']['origin']);
+            self::assertSame('https://public-gateway.test', $config['widget']['public_base_url']);
+            self::assertSame('11111111-1111-4111-8111-111111111111', $config['widget']['assistant_id']);
+            self::assertSame(900, $config['widget']['ttl_seconds']);
+            self::assertSame('dotenv-server-key', $config['api_key']);
+        } finally {
+            $_ENV = $previous;
+            $_SERVER = $previousServer;
+        }
+    }
+
     public function testProviderBindsConfiguredClient(): void
     {
         if (! class_exists(ServiceProvider::class)) {

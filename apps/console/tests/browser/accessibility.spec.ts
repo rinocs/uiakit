@@ -43,3 +43,25 @@ test('console pages have no serious accessibility violations and hardened browse
   expect(JSON.stringify(exposed)).not.toContain('admin-key');
   expect(pageErrors).toEqual([]);
 });
+
+test('native login works without an injected Origin header', async ({ browser }, testInfo) => {
+  // A new context deliberately omits the shared extraHTTPHeaders. The browser
+  // must generate Origin itself, as it does for a real console user.
+  const context = await browser.newContext({ baseURL: testInfo.project.use.baseURL });
+  try {
+    const page = await context.newPage();
+    const response = await page.goto('/login');
+    expect(response?.headers()['referrer-policy']).toBe('same-origin');
+    await login(page);
+    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+    for (const origin of ['http://untrusted.example', 'null']) {
+      const rejected = await context.request.post('/login', {
+        headers: { Origin: origin }, form: { apiKey: 'invalid-csrf-probe' },
+      });
+      expect(rejected.status()).toBe(403);
+      expect(await rejected.text()).toContain('Cross-site POST');
+    }
+  } finally {
+    await context.close();
+  }
+});

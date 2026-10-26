@@ -120,3 +120,16 @@ KB/plugins/approvals/run/playground.
   `npx playwright install --with-deps chromium`, locally can be run
   the same command or a Playwright container.
 - The console does not install plugins/tools: it only configures already installed resources.
+## Ready-to-mount chat widgets
+
+Laravel and FastAPI share `packages/chat-widget`; `connectChat` bootstraps it
+through the host application's authenticated session endpoint. Laravel provides
+a namespaced Blade component and an explicit web route example. The optional
+`packages/fastapi` package supplies `create_widget_router` without introducing
+a full Python SDK. Both adapters keep administrative credentials on the server,
+fix assistant/origin bindings in server configuration, return no-store responses
+and sanitize upstream failures. See [Laravel](laravel.md) and [FastAPI](fastapi.md).
+
+```bash
+make test-widget test-php test-fastapi
+```

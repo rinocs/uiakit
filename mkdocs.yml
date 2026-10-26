@@ -112,6 +112,7 @@ nav:
       - Console: console.md
       - Widgets: widgets.md
       - Laravel: laravel.md
+      - FastAPI: fastapi.md
   - Operations:
       - Deployment: deployment.md
       - Upgrades and rollback: upgrades.md
