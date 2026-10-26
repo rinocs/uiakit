@@ -80,7 +80,12 @@ available, and attach reports to the bundle without publishing packages or image
 The images produced have `0.1.0` tag, OCI version/revision/license label,
 image ID and tar hash in `images.json`. SDK/plugin packages are prepared
 with `npm pack`, wheel, Composer archive and Go source, without `npm publish` or
-`composer publish`. The project is proprietary (`LicenseRef-Proprietary`); le
-notice do not grant licenses to the project's code. The model weights remain
+`composer publish`. The project is proprietary (`LicenseRef-Proprietary`); the
+notices do not grant licenses to the project's code. The model weights remain
 outside the software SBOM and require separate verification. Details in
 [releases.md](releases.md).
+
+The PHP SDK `composer.lock` is resolved with `config.platform.php=8.3.0` to
+match CI. Symfony clock/translation are locked to the 7.4 line (PHP >=8.2),
+not the 8.1 line that requires PHP >=8.4. Validate and install with
+`/usr/bin/php8.3 composer validate/install` before release.
