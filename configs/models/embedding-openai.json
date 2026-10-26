@@ -1,0 +1,7 @@
+{
+  "id": "text-embedding-3-small",
+  "provider": "openai-compatible",
+  "dimension": 1536,
+  "version": "2024-02",
+  "batch_size": 64
+}

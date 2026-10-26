@@ -1,0 +1,154 @@
+site_name: Universal AI Kit
+site_description: Self-hosted AI platform for chat, RAG, tools and agents
+site_author: Universal AI Kit
+docs_dir: docs
+site_dir: site
+use_directory_urls: true
+
+theme:
+  name: material
+  language: en
+  palette:
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+  icon:
+    logo: material/book-open-page-variant
+    menu: material/menu
+    repo: fontawesome/brands/github
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - toc.follow
+  favicon: assets/images/favicon.svg
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+extra_css:
+  - assets/css/extra.css
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: installation.md
+      - Configuration: configuration.md
+      - Examples: examples.md
+      - Complete guide: guide.md
+  - Concepts:
+      - Architecture: architecture.md
+      - Assistants and models: assistants-models.md
+      - Agent loop: agent-loop.md
+      - Agent runs: agent-runs.md
+      - Runtime lifecycle: runtime-lifecycle.md
+      - Budgets: budgets.md
+      - Authentication: auth.md
+  - RAG:
+      - Knowledge bases: knowledge-bases.md
+      - Documents: documents.md
+      - Parsing: parsing.md
+      - Chunking: chunking.md
+      - Jobs: jobs.md
+      - Storage: storage.md
+      - Embeddings: embeddings.md
+      - Vector store: vector-store.md
+      - Ingestion: ingestion.md
+      - Retrieval: retrieval.md
+      - RAG and citations: rag.md
+      - Data policy: data-policy.md
+  - Tools and plugins:
+      - Tools: tools.md
+      - HTTP tools: http-tools.md
+      - Approvals: approvals.md
+      - Tool executions: tool-executions.md
+      - Agents: agents.md
+      - Plugins: plugins.md
+      - Plugin SDK: plugin-sdk.md
+      - Directives: directives.md
+      - Built-in directives: builtin-directives.md
+      - Events and hooks: events-hooks.md
+      - Audit: audit.md
+  - Integrations:
+      - API overview: api.md
+      - SDKs and contracts: integrations.md
+      - Console: console.md
+      - Widgets: widgets.md
+      - Laravel: laravel.md
+  - Operations:
+      - Deployment: deployment.md
+      - Upgrades and rollback: upgrades.md
+      - Backup and restore: backup-restore.md
+      - Security: security-operations.md
+      - Observability: observability.md
+      - Capacity and recovery: capacity.md
+      - Releases and packaging: releases.md
+      - Dependencies: dependencies.md
+  - Project:
+      - Acceptance report: acceptance-report.md
+      - Roadmap: TASKS.md
+      - Progress log: progress.md
+      - Implementation status: implementation-status.md
+      - Documentation index: documentation-index.md
+      - Project specification: project-spec.md
+      - Release notes: release-notes.md
+      - ADRs:
+          - Overview: adr/README.md
+          - 0001 Functional core: adr/0001-functional-core.md
+          - 0002 API contracts and events: adr/0002-api-contracts-and-events.md
+          - 0003 Authorization and secrets: adr/0003-authorization-and-secrets.md
+          - 0004 Directive and hook lifecycle: adr/0004-directive-and-hook-lifecycle.md
+          - 0005 Plugin trust and lifecycle: adr/0005-plugin-trust-and-lifecycle.md
+          - 0006 Tool effects and approvals: adr/0006-tool-effects-and-approvals.md
+          - 0007 RAG data and provenance: adr/0007-rag-data-and-provenance.md
+          - 0008 Durable jobs and optional Redis: adr/0008-durable-jobs-and-optional-redis.md
+          - 0009 Providers and model capabilities: adr/0009-providers-and-model-capabilities.md
+          - 0010 Memory and data lifecycle: adr/0010-memory-and-data-lifecycle.md
+          - 0011 SDKs, widget and console: adr/0011-sdks-widget-and-console.md
+          - 0012 Deployment, upgrades and recovery: adr/0012-deployment-upgrades-and-recovery.md
+          - 0013 Assistant version snapshots: adr/0013-assistant-version-snapshots.md
+      - Implementation plans:
+          - Functional core: superpowers/plans/2026-10-22-functional-core.md
+          - Milestone 1 closeout: superpowers/plans/2026-10-22-milestone-1-functional-core-closeout.md
+          - Milestone 2 extensibility: superpowers/plans/2026-10-22-milestone-2-extensibility.md
+          - Milestone 3 RAG: superpowers/plans/2026-10-22-milestone-3-rag.md
+          - Milestone 4 agents: superpowers/plans/2026-10-22-milestone-4-agents.md
+          - Milestone 5 integration: superpowers/plans/2026-10-22-milestone-5-integration.md
+          - Milestone 6 production hardening: superpowers/plans/2026-10-22-milestone-6-production-hardening.md

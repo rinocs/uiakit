@@ -1,0 +1,160 @@
+name: Release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer version (must match VERSION)
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and validate version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          test "$version" = "$(cat VERSION)"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache-dependency-path: apps/gateway/go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            apps/runtime/requirements*.txt
+            packages/core/pyproject.toml
+            packages/plugin-sdk/pyproject.toml
+            plugins/examples/hello/pyproject.toml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            packages/sdk-typescript/package-lock.json
+            packages/chat-widget/package-lock.json
+            apps/console/package-lock.json
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+
+      - name: Install locked dependencies
+        run: |
+          python -m pip install -r apps/runtime/requirements-dev.txt \
+            packages/core packages/plugin-sdk plugins/examples/hello
+          npm ci --prefix packages/sdk-typescript
+          npm ci --prefix packages/chat-widget
+          npm ci --prefix apps/console
+          composer install --working-dir=packages/sdk-php --no-interaction --no-progress
+
+      - name: Tests and contracts
+        run: |
+          make test
+          make build-packages
+
+      - name: Reject breaking public contract changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          if [ -n "$previous" ] && [ "$previous" != "$GITHUB_REF_NAME" ]; then
+            git show "$previous:packages/api-contract/public.openapi.json" > /tmp/openapi-previous.json
+            python3 tests/release/contract_diff.py \
+              /tmp/openapi-previous.json packages/api-contract/public.openapi.json
+          else
+            echo "No previous release tag: contract baseline starts here."
+          fi
+
+      - name: Inventory, SBOM and notices
+        run: |
+          python3 scripts/release.py inventory --output release
+          python3 tests/release/check_licenses.py release/sbom.cdx.json
+
+      - name: Prepare SDK and plugin packages
+        run: python3 scripts/release.py packages --output release/packages
+
+      - name: Build versioned images and record digests
+        run: python3 scripts/release.py images --output release
+
+      - name: Generate source SBOM with Syft
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: release/syft-source.cdx.json
+          upload-artifact: false
+
+      - name: Generate image SBOMs with Syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Image SBOMs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for archive in release/images/*.tar; do
+            name="$(basename "$archive" .tar)"
+            syft "docker-archive:$archive" \
+              -o "cyclonedx-json=release/images/$name.cdx.json"
+          done
+
+      - name: Vulnerability gate
+        uses: anchore/scan-action/download-grype@v0
+
+      - name: Scan source and images
+        shell: bash
+        run: |
+          set -euo pipefail
+          grype "sbom:release/sbom.cdx.json" --fail-on high --only-fixed \
+            -o json > release/vulnerabilities-source.json
+          for archive in release/images/*.tar; do
+            name="$(basename "$archive" .tar)"
+            grype "docker-archive:$archive" --fail-on high --only-fixed \
+              -o json > "release/vulnerabilities-$name.json"
+          done
+
+      - name: Manifest, checksums and artifact scan
+        run: |
+          python3 scripts/release.py manifest --output release
+          python3 tests/release/check_release.py --artifacts release
+
+      - name: Attest release artifact provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: release/**
+
+      - name: Upload release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: universal-ai-kit-${{ env.VERSION }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 14

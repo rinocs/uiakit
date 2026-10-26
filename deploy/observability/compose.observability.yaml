@@ -1,0 +1,30 @@
+# Optional observability profile:
+# docker compose -f compose.yaml -f deploy/observability/compose.observability.yaml \
+#   --profile observability up -d
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    profiles: [observability]
+    command: ['--config=/etc/otelcol/config.yaml']
+    volumes:
+      - ./deploy/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - observability-data:/var/lib/otel
+    ports:
+      - '127.0.0.1:${OTEL_COLLECTOR_PORT:-4318}:4318'
+    networks: [backend]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+  gateway:
+    environment:
+      UAI_OTEL_ENDPOINT: http://otel-collector:4318
+  runtime:
+    environment:
+      UAI_OTEL_ENDPOINT: http://otel-collector:4318
+  worker:
+    environment:
+      UAI_OTEL_ENDPOINT: http://otel-collector:4318
+volumes:
+  observability-data:

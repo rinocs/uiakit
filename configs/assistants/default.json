@@ -1,0 +1,22 @@
+{
+  "name": "Example",
+  "description": "",
+  "model": "llama3.2:3b",
+  "system_prompt": "Helpful",
+  "directives": [],
+  "tools": [],
+  "skills": [],
+  "knowledge_base_ids": [],
+  "memory": {
+    "conversation": true,
+    "semantic": false
+  },
+  "limits": {
+    "max_input_chars": 64000,
+    "max_output_chars": 64000,
+    "duration_seconds": 120
+  },
+  "policy": {
+    "require_tool_approval": true
+  }
+}

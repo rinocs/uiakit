@@ -1,0 +1,831 @@
+{
+  "$defs": {
+    "CancellationObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "enum": [
+            "cancelled",
+            "closed"
+          ],
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "CancellationObservation",
+      "type": "object"
+    },
+    "ContextMetrics": {
+      "additionalProperties": false,
+      "properties": {
+        "message_count": {
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Message Count",
+          "type": "integer"
+        },
+        "input_chars": {
+          "minimum": 0,
+          "title": "Input Chars",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "message_count",
+        "input_chars"
+      ],
+      "title": "ContextMetrics",
+      "type": "object"
+    },
+    "FailureObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "pattern": "^[a-z][a-z0-9_]{0,99}$",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "FailureObservation",
+      "type": "object"
+    },
+    "MemoryObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "enum": [
+            "working",
+            "conversation",
+            "semantic"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "entries": {
+          "minimum": 0,
+          "title": "Entries",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "scope",
+        "entries"
+      ],
+      "title": "MemoryObservation",
+      "type": "object"
+    },
+    "ModelObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "title": "ModelObservation",
+      "type": "object"
+    },
+    "ObservationPayload": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "ObservationPayload",
+      "type": "object"
+    },
+    "OutputMetrics": {
+      "additionalProperties": false,
+      "properties": {
+        "output_chars": {
+          "minimum": 0,
+          "title": "Output Chars",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "output_chars"
+      ],
+      "title": "OutputMetrics",
+      "type": "object"
+    },
+    "ResponseMetrics": {
+      "additionalProperties": false,
+      "properties": {
+        "characters": {
+          "exclusiveMinimum": 0,
+          "title": "Characters",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "characters"
+      ],
+      "title": "ResponseMetrics",
+      "type": "object"
+    },
+    "ToolFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "pattern": "^[a-z][a-z0-9_]{0,99}$",
+          "title": "Code",
+          "type": "string"
+        },
+        "tool_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Tool Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "tool_id"
+      ],
+      "title": "ToolFailure",
+      "type": "object"
+    },
+    "ToolObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "tool_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Tool Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_id"
+      ],
+      "title": "ToolObservation",
+      "type": "object"
+    },
+    "ToolOutput": {
+      "additionalProperties": false,
+      "properties": {
+        "tool_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Tool Id",
+          "type": "string"
+        },
+        "output_chars": {
+          "minimum": 0,
+          "title": "Output Chars",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tool_id",
+        "output_chars"
+      ],
+      "title": "ToolOutput",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "request.received"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "message_count": {
+                "maximum": 100,
+                "minimum": 1,
+                "title": "Message Count",
+                "type": "integer"
+              },
+              "input_chars": {
+                "minimum": 0,
+                "title": "Input Chars",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "message_count",
+              "input_chars"
+            ],
+            "title": "ContextMetrics",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "request.authorized"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {},
+            "title": "ObservationPayload",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "agent.started"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {},
+            "title": "ObservationPayload",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "context.building"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {},
+            "title": "ObservationPayload",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "context.ready"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "message_count": {
+                "maximum": 100,
+                "minimum": 1,
+                "title": "Message Count",
+                "type": "integer"
+              },
+              "input_chars": {
+                "minimum": 0,
+                "title": "Input Chars",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "message_count",
+              "input_chars"
+            ],
+            "title": "ContextMetrics",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "model.before"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "model": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Model",
+                "type": "string"
+              }
+            },
+            "required": [
+              "model"
+            ],
+            "title": "ModelObservation",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "model.after"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "output_chars": {
+                "minimum": 0,
+                "title": "Output Chars",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "output_chars"
+            ],
+            "title": "OutputMetrics",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "tool.requested"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "tool_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Tool Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "tool_id"
+            ],
+            "title": "ToolObservation",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "tool.authorized"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "tool_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Tool Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "tool_id"
+            ],
+            "title": "ToolObservation",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "tool.started"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "tool_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Tool Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "tool_id"
+            ],
+            "title": "ToolObservation",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "tool.completed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "tool_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Tool Id",
+                "type": "string"
+              },
+              "output_chars": {
+                "minimum": 0,
+                "title": "Output Chars",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "tool_id",
+              "output_chars"
+            ],
+            "title": "ToolOutput",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "tool.failed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "pattern": "^[a-z][a-z0-9_]{0,99}$",
+                "title": "Code",
+                "type": "string"
+              },
+              "tool_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Tool Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "tool_id"
+            ],
+            "title": "ToolFailure",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "memory.read"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "scope": {
+                "enum": [
+                  "working",
+                  "conversation",
+                  "semantic"
+                ],
+                "title": "Scope",
+                "type": "string"
+              },
+              "entries": {
+                "minimum": 0,
+                "title": "Entries",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "scope",
+              "entries"
+            ],
+            "title": "MemoryObservation",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "memory.write"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "scope": {
+                "enum": [
+                  "working",
+                  "conversation",
+                  "semantic"
+                ],
+                "title": "Scope",
+                "type": "string"
+              },
+              "entries": {
+                "minimum": 0,
+                "title": "Entries",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "scope",
+              "entries"
+            ],
+            "title": "MemoryObservation",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "response.delta"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "characters": {
+                "exclusiveMinimum": 0,
+                "title": "Characters",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "characters"
+            ],
+            "title": "ResponseMetrics",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "response.completed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "characters": {
+                "exclusiveMinimum": 0,
+                "title": "Characters",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "characters"
+            ],
+            "title": "ResponseMetrics",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "agent.failed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "pattern": "^[a-z][a-z0-9_]{0,99}$",
+                "title": "Code",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "title": "FailureObservation",
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "agent.cancelled"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "additionalProperties": false,
+            "properties": {
+              "reason": {
+                "enum": [
+                  "cancelled",
+                  "closed"
+                ],
+                "title": "Reason",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason"
+            ],
+            "title": "CancellationObservation",
+            "type": "object"
+          }
+        }
+      }
+    }
+  ],
+  "description": "Detached metadata-only observation, independent of public SSE payloads.",
+  "properties": {
+    "event_id": {
+      "format": "uuid",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Event Version",
+      "type": "integer"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "correlation_id": {
+      "format": "uuid",
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "event_type": {
+      "enum": [
+        "request.received",
+        "request.authorized",
+        "agent.started",
+        "context.building",
+        "context.ready",
+        "model.before",
+        "model.after",
+        "tool.requested",
+        "tool.authorized",
+        "tool.started",
+        "tool.completed",
+        "tool.failed",
+        "memory.read",
+        "memory.write",
+        "response.delta",
+        "response.completed",
+        "agent.failed",
+        "agent.cancelled"
+      ],
+      "title": "Event Type",
+      "type": "string"
+    },
+    "payload": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ContextMetrics"
+        },
+        {
+          "$ref": "#/$defs/ModelObservation"
+        },
+        {
+          "$ref": "#/$defs/OutputMetrics"
+        },
+        {
+          "$ref": "#/$defs/ToolOutput"
+        },
+        {
+          "$ref": "#/$defs/ToolFailure"
+        },
+        {
+          "$ref": "#/$defs/ToolObservation"
+        },
+        {
+          "$ref": "#/$defs/MemoryObservation"
+        },
+        {
+          "$ref": "#/$defs/ResponseMetrics"
+        },
+        {
+          "$ref": "#/$defs/FailureObservation"
+        },
+        {
+          "$ref": "#/$defs/CancellationObservation"
+        },
+        {
+          "$ref": "#/$defs/ObservationPayload"
+        }
+      ],
+      "title": "Payload"
+    }
+  },
+  "required": [
+    "run_id",
+    "correlation_id",
+    "event_type",
+    "payload"
+  ],
+  "title": "LifecycleEvent",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

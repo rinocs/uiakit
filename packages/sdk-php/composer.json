@@ -1,0 +1,40 @@
+{
+  "name": "universal-ai-kit/sdk-php",
+  "description": "Server-side PHP client for the Universal AI Kit public API",
+  "type": "library",
+  "license": "proprietary",
+  "require": {
+    "php": ">=8.2",
+    "ext-curl": "*",
+    "ext-json": "*"
+  },
+  "require-dev": {
+    "illuminate/config": "^11.0 || ^12.0",
+    "illuminate/container": "^11.0 || ^12.0",
+    "illuminate/support": "^11.0 || ^12.0",
+    "phpunit/phpunit": "^11.0 || ^12.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "UniversalAIKit\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "UniversalAIKit\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit --colors=always"
+  },
+  "config": {
+    "sort-packages": true
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "UniversalAIKit\\Laravel\\UniversalAiKitServiceProvider"
+      ]
+    }
+  }
+}

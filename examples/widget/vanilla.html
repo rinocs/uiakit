@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Universal AI Kit widget</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "@universal-ai-kit/sdk": "../../packages/sdk-typescript/dist/index.js"
+        }
+      }
+    </script>
+    <style>
+      body { margin: 0; padding: 1rem; background: #f3f4f6; }
+      @media (max-width: 480px) { body { padding: 0; } }
+    </style>
+  </head>
+  <body>
+    <uai-chat id="chat" title="Supporto" theme="light"></uai-chat>
+    <script type="module">
+      import '../../packages/chat-widget/dist/index.js';
+
+      const chat = document.querySelector('#chat');
+
+      // The backend mints a short-lived widget token; this endpoint must never
+      // return the administrative API key.
+      const response = await fetch('/api/widget-token', { method: 'POST' });
+      if (!response.ok) throw new Error('widget token unavailable');
+      const { token, conversation_id } = await response.json();
+
+      chat.setConfig({
+        baseUrl: location.origin,
+        token,
+        conversationId: conversation_id,
+        onCitation: (citation) => {
+          // Ask the backend for an authorized source URL, or ignore.
+          console.log('citation', citation);
+        },
+      });
+    </script>
+  </body>
+</html>

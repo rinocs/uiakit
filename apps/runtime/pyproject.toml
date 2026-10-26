@@ -1,0 +1,16 @@
+[project]
+name = "uai-runtime"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["fastapi==0.143.1", "uvicorn==0.54.0", "httpx==0.28.1", "httpcore==1.0.9", "jsonschema==4.26.0", "pydantic==2.14.1", "pypdf==6.21.2", "defusedxml==0.7.1", "uai-core==0.1.0", "uai-plugin-sdk==0.1.0", "uai-plugin-hello==0.1.0"]
+
+[dependency-groups]
+dev = ["pytest==9.1.1"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.uv.sources]
+uai-core = { path = "../../packages/core", editable = true }
+uai-plugin-sdk = { path = "../../packages/plugin-sdk", editable = true }
+uai-plugin-hello = { path = "../../plugins/examples/hello", editable = true }

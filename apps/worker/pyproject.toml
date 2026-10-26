@@ -1,0 +1,12 @@
+[project]
+name = "uai-worker"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["psycopg[binary]==3.3.6", "uai-core==0.1.0", "uai-runtime==0.1.0"]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "../runtime"]
+
+[tool.uv.sources]
+uai-core = { path = "../../packages/core", editable = true }
+uai-runtime = { path = "../runtime", editable = true }

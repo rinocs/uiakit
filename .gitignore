@@ -1,0 +1,40 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# Node / SvelteKit
+node_modules/
+.svelte-kit/
+.vite/
+test-results/
+playwright-report/
+
+# Local runtime state and generated output
+data/
+vendor/
+backups/
+release/
+site/
+restore-report-*.json
+restored-config-*/
+
+# Agent tooling state
+.superpowers/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.log

@@ -1,0 +1,127 @@
+{
+  "baseline_version": 1,
+  "chat": {
+    "citations": 0,
+    "completed": 12,
+    "concurrency": 4,
+    "p50_ms": 71.84,
+    "p95_ms": 77.95,
+    "requests": 12,
+    "throughput_rps": 59.282,
+    "ttfb_p95_ms": 47.81,
+    "wall_seconds": 0.202
+  },
+  "generated_at": "2026-10-26T10:26:36.045606+00:00",
+  "host": "dev-ct",
+  "ingestion": {
+    "completed": 8,
+    "documents": 8,
+    "failed": 0,
+    "index": {
+      "chunk_count": 72,
+      "collection_name": "uai_3981d892d2214379a8f32af44f9168f2_d805f6a687822658",
+      "seconds": 3.014
+    },
+    "kb": "3981d892-d221-4379-a8f3-2af44f9168f2",
+    "p50_ms": 1275.08,
+    "p95_ms": 1353.36,
+    "wall_seconds": 1.445
+  },
+  "project": "uai-e2e-160748",
+  "resources": {
+    "gateway": {
+      "cpu_percent": 0.0,
+      "memory_mb": 8.76
+    },
+    "isolated-plugin": {
+      "cpu_percent": 19.15,
+      "memory_mb": 30.45
+    },
+    "mock-provider": {
+      "cpu_percent": 7.8,
+      "memory_mb": 19.48
+    },
+    "mock-tool": {
+      "cpu_percent": 3.97,
+      "memory_mb": 13.76
+    },
+    "postgres": {
+      "cpu_percent": 2.63,
+      "memory_mb": 77.63
+    },
+    "qdrant": {
+      "cpu_percent": 0.08,
+      "memory_mb": 78.44
+    },
+    "runtime": {
+      "cpu_percent": 0.14,
+      "memory_mb": 70.51
+    },
+    "worker": {
+      "cpu_percent": 0.0,
+      "memory_mb": 64.76
+    }
+  },
+  "resources_peak": {
+    "gateway": {
+      "cpu_percent": 3.0,
+      "memory_mb": 11.57
+    },
+    "isolated-plugin": {
+      "cpu_percent": 20.5,
+      "memory_mb": 30.95
+    },
+    "mock-provider": {
+      "cpu_percent": 7.22,
+      "memory_mb": 19.52
+    },
+    "mock-tool": {
+      "cpu_percent": 0.02,
+      "memory_mb": 13.86
+    },
+    "postgres": {
+      "cpu_percent": 26.12,
+      "memory_mb": 77.69
+    },
+    "qdrant": {
+      "cpu_percent": 6.03,
+      "memory_mb": 78.9
+    },
+    "runtime": {
+      "cpu_percent": 7.5,
+      "memory_mb": 70.5
+    },
+    "worker": {
+      "cpu_percent": 38.38,
+      "memory_mb": 64.76
+    }
+  },
+  "retrieval": {
+    "citations": 48,
+    "completed": 6,
+    "concurrency": 4,
+    "p50_ms": 176.08,
+    "p95_ms": 183.12,
+    "requests": 6,
+    "throughput_rps": 23.941,
+    "ttfb_p95_ms": 79.21,
+    "wall_seconds": 0.251
+  },
+  "slow_provider": {
+    "cancel_accepted": true,
+    "cancelled": 1,
+    "cancelled_run": "67c7bc16-d493-4430-9f9f-d21c23212ed5",
+    "completed": 1,
+    "health_ms_during_load": 1.96,
+    "health_status": 200,
+    "max_total_ms": 10051.34,
+    "requests": 2
+  },
+  "workload": {
+    "chats": 12,
+    "concurrency": 4,
+    "documents": 8,
+    "retrieval": 6,
+    "slow": 2
+  }
+}

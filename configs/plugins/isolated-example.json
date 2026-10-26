@@ -1,0 +1,9 @@
+{
+  "id": "org.uai.isolated",
+  "name": "Isolated HTTP example",
+  "version": "0.1.0",
+  "runtime": "isolated_http",
+  "compatibility": {"core": ">=0.1.0,<1"},
+  "capabilities": ["tools"],
+  "permissions": {"network": {"connectors": ["isolated_example"]}}
+}

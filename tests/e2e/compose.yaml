@@ -1,0 +1,92 @@
+services:
+  runtime:
+    command: [uvicorn, uai_e2e_runtime:from_env, --factory, --host, 0.0.0.0, --port, '8000', --no-access-log, --limit-concurrency, '32', --timeout-graceful-shutdown, '130']
+    volumes:
+      - ./tests/e2e/directive_runtime.py:/app/uai_e2e_runtime.py:ro
+      - ./tests/e2e/run_tools.py:/app/uai_e2e_tools.py:ro
+      - ./tests/e2e/run_plugin_sdk.py:/app/uai_e2e_plugin_sdk.py:ro
+      - ./tests/e2e/check_plugins.py:/app/uai_e2e_plugins.py:ro
+      - ./tests/e2e/check_isolated_plugin.py:/app/uai_e2e_isolated.py:ro
+      - ./tests/e2e/check_agents.py:/app/uai_e2e_agents.py:ro
+      - ./tests/e2e/run_mutating_tool.py:/app/uai_e2e_mutating.py:ro
+    environment:
+      MODEL_BASE_URL: http://mock-provider:9000/v1
+      MODEL_NAME: test
+      EMBEDDING_PROVIDER: ollama
+      EMBEDDING_BASE_URL: http://mock-provider:9000
+      EMBEDDING_MODEL: test-embed
+      EMBEDDING_VERSION: test-v1
+      EMBEDDING_DIMENSION: "8"
+      EMBEDDING_BATCH_SIZE: "8"
+      QDRANT_URL: http://qdrant:6333
+      ISOLATED_PLUGIN_URL: http://isolated-plugin:8090
+      ISOLATED_PLUGIN_TOKEN: ${ISOLATED_PLUGIN_TOKEN:?}
+      ISOLATED_PLUGIN_MANIFEST: /app/configs/plugins/isolated-example.json
+      TOOL_ALLOWED_CONNECTORS: mocktool,isolated_example
+      MODEL_TOOL_CALLING: "true"
+      UAI_EGRESS_ALLOW: mock-provider:9000,isolated-plugin:8090
+    depends_on:
+      mock-provider: {condition: service_healthy}
+      mock-tool: {condition: service_healthy}
+      isolated-plugin: {condition: service_healthy}
+  gateway:
+    environment:
+      MODEL_NAME: test
+  mock-provider:
+    image: python:3.13.12-slim
+    command: [python, /fixture/mock_provider.py]
+    volumes:
+      - ./tests/e2e/mock_provider.py:/fixture/mock_provider.py:ro
+    networks: [backend]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/health', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  qdrant:
+    networks: [backend, frontend]
+    ports:
+      - '127.0.0.1:${QDRANT_TEST_PORT}:6333'
+  worker:
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      EMBEDDING_PROVIDER: ollama
+      EMBEDDING_BASE_URL: http://mock-provider:9000
+      EMBEDDING_MODEL: test-embed
+      EMBEDDING_VERSION: test-v1
+      EMBEDDING_DIMENSION: "8"
+      EMBEDDING_BATCH_SIZE: "8"
+      UAI_EGRESS_ALLOW: mock-provider:9000
+    depends_on:
+      mock-provider: {condition: service_healthy}
+  isolated-plugin:
+    image: uai-isolated-plugin:0.1.0
+    build:
+      context: .
+      dockerfile: deploy/docker/isolated-plugin.Dockerfile
+    environment:
+      ISOLATED_PLUGIN_TOKEN: ${ISOLATED_PLUGIN_TOKEN:?}
+      ISOLATED_PLUGIN_MANIFEST: /app/manifest.json
+    networks: [backend]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, python, -c, "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8090/v1/health',headers={'Authorization':'Bearer '+os.environ['ISOLATED_PLUGIN_TOKEN'],'X-UAI-Plugin-Protocol':'1'}); urllib.request.urlopen(r,timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    restart: 'no'
+  mock-tool:
+    image: python:3.13.12-slim
+    command: [python, /fixture/mock_tool.py]
+    volumes:
+      - ./tests/e2e/mock_tool.py:/fixture/mock_tool.py:ro
+    networks: [backend]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9100/health', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 20

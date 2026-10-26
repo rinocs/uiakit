@@ -1,0 +1,213 @@
+{
+  "version": 1,
+  "required": [
+    "auth.credentials",
+    "auth.scopes",
+    "auth.ownership",
+    "auth.widget",
+    "auth.internal_runtime",
+    "injection.model_and_retrieval",
+    "egress.ssrf_dns_redirect",
+    "upload.parser_limits",
+    "ui.xss",
+    "plugin.boundary",
+    "effects.approval_replay",
+    "logs.redaction",
+    "secrets.no_plaintext",
+    "limits.rate_and_storage",
+    "rag.kb_isolation"
+  ],
+  "boundaries": {
+    "auth.credentials": {
+      "deny": [
+        "apps/gateway/auth_test.go::TestAuthFailuresDoNotBecomeBootstrap",
+        "apps/gateway/auth_test.go::TestCredentialValidationRejectsRoleEscalationAndInvalidExpiry"
+      ],
+      "allow": [
+        "apps/gateway/auth_test.go::TestMeReturnsEffectiveRoleAndScopes",
+        "apps/gateway/server_test.go::TestAuthenticationAndValidation"
+      ],
+      "e2e": ["tests/e2e/check_auth.py"]
+    },
+    "auth.scopes": {
+      "deny": [
+        "apps/gateway/assistants_test.go::TestModelCatalogRequiresScope",
+        "apps/gateway/assistants_test.go::TestModelsCannotBeReadWithoutScope",
+        "apps/gateway/documents_test.go::TestDocumentOwnershipAndScopes",
+        "apps/gateway/approvals_test.go::TestApprovalScopesAndMissingIDs"
+      ],
+      "allow": [
+        "apps/gateway/auth_test.go::TestRoleAndScopeIntersection",
+        "apps/gateway/auth_test.go::TestGatewayPropagatesOnlyAuthenticatedAuthority"
+      ],
+      "e2e": ["tests/e2e/check_auth.py"]
+    },
+    "auth.ownership": {
+      "deny": [
+        "apps/gateway/knowledge_bases_test.go::TestKnowledgeBaseCRUDVersionsAndAccess",
+        "apps/gateway/documents_test.go::TestDocumentOwnershipAndScopes"
+      ],
+      "allow": [
+        "apps/gateway/knowledge_bases_test.go::TestAssistantKnowledgeBaseAssociationsAndDeleteGuard",
+        "apps/gateway/documents_test.go::TestDocumentUploadDedupListAndDelete"
+      ],
+      "e2e": [
+        "tests/e2e/check_auth.py",
+        "tests/e2e/check_documents.py",
+        "tests/e2e/check_knowledge_bases.py",
+        "tests/e2e/check_versions.py"
+      ]
+    },
+    "auth.widget": {
+      "deny": [
+        "apps/gateway/widget_tokens_test.go::TestWidgetCORSAndRateLimit",
+        "apps/gateway/widget_tokens_test.go::TestWidgetMintRejectsUnlistedOriginAndLongTTL",
+        "apps/gateway/widget_tokens_test.go::TestWidgetTokenIsScopedAndBound"
+      ],
+      "allow": [
+        "apps/gateway/widget_tokens_test.go::TestWidgetTokenIsScopedAndBound",
+        "apps/gateway/widget_tokens_test.go::TestWidgetCORSAndRateLimit"
+      ],
+      "e2e": ["tests/e2e/check_integrations.py"]
+    },
+    "auth.internal_runtime": {
+      "deny": [
+        "apps/runtime/tests/test_hooks.py::test_rejected_http_request_does_not_invent_an_authorized_run_trace"
+      ],
+      "allow": [
+        "apps/runtime/tests/test_runtime.py::test_auth_and_validation"
+      ]
+    },
+    "injection.model_and_retrieval": {
+      "deny": [
+        "apps/runtime/tests/test_tool_authorization.py::test_model_prompt_and_retrieved_document_cannot_widen_permissions",
+        "apps/runtime/tests/test_rag_directive.py::test_prompt_injection_stays_data_and_authority_is_unchanged",
+        "apps/runtime/tests/test_directives.py::test_internal_assistant_selection_requires_registered_name"
+      ],
+      "allow": [
+        "apps/runtime/tests/test_rag_directive.py::test_rag_directive_injects_untrusted_context_and_collects_used_citations",
+        "apps/runtime/tests/test_tool_authorization.py::test_effective_permissions_are_an_intersection_of_every_owner"
+      ],
+      "e2e": ["tests/e2e/check_directives.py"]
+    },
+    "egress.ssrf_dns_redirect": {
+      "deny": [
+        "apps/runtime/tests/test_http_tools.py::test_unsafe_targets_are_rejected_before_any_transport",
+        "apps/runtime/tests/test_http_tools.py::test_mixed_dns_answers_are_rejected_and_one_validated_address_is_pinned",
+        "apps/runtime/tests/test_http_tools.py::test_redirects_are_rejected_without_a_second_request",
+        "apps/runtime/tests/test_http_tools.py::test_model_arguments_cannot_change_the_destination",
+        "apps/runtime/tests/test_http_tools.py::test_http_executor_enforces_egress_allowlist"
+      ],
+      "allow": [
+        "apps/runtime/tests/test_http_tools.py::test_explicit_private_allowlist_permits_only_that_private_range",
+        "apps/runtime/tests/test_http_tools.py::test_pinned_transport_connects_to_the_validated_address_and_keeps_the_url_host"
+      ],
+      "e2e": ["tests/e2e/check_tools.py"]
+    },
+    "upload.parser_limits": {
+      "deny": [
+        "apps/gateway/documents_test.go::TestDocumentRejectsMimeOversizeAndHostileArchives",
+        "apps/runtime/tests/test_storage.py::test_filesystem_rejects_traversal_absolute_and_symlink_parents",
+        "apps/runtime/tests/test_parsers.py::test_corrupt_documents_fail_closed",
+        "apps/runtime/tests/test_skills.py::test_path_traversal_and_ambiguous_paths_are_rejected"
+      ],
+      "allow": [
+        "apps/gateway/documents_test.go::TestDocumentUploadDedupListAndDelete",
+        "apps/runtime/tests/test_storage.py::test_filesystem_roundtrip_persistence_and_idempotent_delete"
+      ],
+      "e2e": ["tests/e2e/check_documents.py", "tests/e2e/check_ingestion.py"]
+    },
+    "ui.xss": {
+      "deny": [
+        "packages/chat-widget/tests/markdown.test.ts::does not execute raw HTML or unsafe links",
+        "packages/chat-widget/tests/widget.test.ts::never interprets model HTML or unsafe links"
+      ],
+      "allow": [
+        "packages/chat-widget/tests/markdown.test.ts::renders safe Markdown without interpreting raw HTML",
+        "packages/chat-widget/tests/widget.test.ts::streams Markdown, renders authorized citations and deduplicates events"
+      ],
+      "suite": ["make test-widget"]
+    },
+    "plugin.boundary": {
+      "deny": [
+        "apps/runtime/tests/test_isolated_plugins.py::test_manifest_mismatch_and_remote_failure_fail_closed_without_core_breakage",
+        "apps/runtime/tests/test_isolated_plugins.py::test_isolation_does_not_import_remote_code",
+        "apps/gateway/plugins_test.go::TestPluginCatalogRejectsPrivateMetadataAndRedirects",
+        "apps/gateway/plugins_test.go::TestPluginConfigRejectsUnsafeInputBeforeRuntime"
+      ],
+      "allow": [
+        "apps/runtime/tests/test_isolated_plugins.py::test_isolated_catalog_execution_and_connector_authorization",
+        "apps/gateway/plugins_test.go::TestPluginAdminPersistenceAndReconciliation"
+      ],
+      "e2e": [
+        "tests/e2e/check_plugins.py",
+        "tests/e2e/check_plugin_admin.py",
+        "tests/e2e/check_isolated_plugin.py"
+      ]
+    },
+    "effects.approval_replay": {
+      "deny": [
+        "apps/gateway/approvals_test.go::TestConcurrentApprovalsOnlyOneDecisionWins",
+        "apps/gateway/server_test.go::TestStreamingReplayConflict",
+        "apps/gateway/server_test.go::TestMessageRequiresIdempotencyAndRejectsOversize",
+        "apps/runtime/tests/test_approvals.py::test_approved_approval_is_single_use_and_rechecks_the_binding"
+      ],
+      "allow": [
+        "apps/gateway/approvals_test.go::TestApprovalsListGetApproveAndRunResume",
+        "apps/runtime/tests/test_approvals.py::test_approval_binds_run_tool_version_arguments_policy_and_expiry"
+      ],
+      "e2e": [
+        "tests/e2e/check_approvals.py",
+        "tests/e2e/check_tool_executions.py",
+        "tests/e2e/check_versions.py"
+      ]
+    },
+    "logs.redaction": {
+      "deny": [
+        "apps/gateway/audit_test.go::TestAuditRedactionRemovesCredentialsAndBodiesRecursively",
+        "apps/runtime/tests/test_audit.py::test_redaction_is_recursive_and_covers_auth_material",
+        "apps/runtime/tests/test_hooks.py::test_runtime_observes_lifecycle_without_changing_public_sse_or_leaking_content"
+      ],
+      "allow": [
+        "apps/gateway/audit_test.go::TestAuditReadRequiresScopeFiltersAndRedacts",
+        "apps/runtime/tests/test_audit.py::test_audit_event_contains_binding_without_arguments_or_results"
+      ],
+      "e2e": ["tests/e2e/check_approvals.py", "tests/e2e/check_observability.py"]
+    },
+    "secrets.no_plaintext": {
+      "deny": [
+        "apps/gateway/auth_test.go::TestCredentialCreationHashesSecretAndReturnsItOnce",
+        "apps/runtime/tests/test_secrets.py::test_file_and_environment_conflict"
+      ],
+      "allow": [
+        "apps/gateway/auth_test.go::TestCredentialCreationHashesSecretAndReturnsItOnce",
+        "apps/runtime/tests/test_secrets.py::test_environment_secret"
+      ],
+      "e2e": ["tests/e2e/check_auth.py"],
+      "suite": ["make test-security"]
+    },
+    "limits.rate_and_storage": {
+      "deny": [
+        "apps/gateway/ratelimit_test.go::TestRateLimiterBoundsStorage",
+        "apps/gateway/ratelimit_test.go::TestRateLimiterSeparatesKeys",
+        "apps/runtime/tests/test_egress.py::test_empty_policy_denies_everything"
+      ],
+      "allow": [
+        "apps/gateway/ratelimit_test.go::TestRateLimiterResetsWindow",
+        "apps/runtime/tests/test_egress.py::test_allowed_host_and_port"
+      ],
+      "suite": ["make test-security"]
+    },
+    "rag.kb_isolation": {
+      "deny": [
+        "apps/gateway/knowledge_bases_test.go::TestKnowledgeBaseCRUDVersionsAndAccess",
+        "apps/runtime/tests/test_rag_directive.py::test_rag_directive_rejects_no_kb_missing_target_and_unavailable_backend"
+      ],
+      "allow": [
+        "apps/gateway/knowledge_bases_test.go::TestAssistantKnowledgeBaseAssociationsAndDeleteGuard",
+        "apps/runtime/tests/test_rag_directive.py::test_rag_directive_injects_untrusted_context_and_collects_used_citations"
+      ],
+      "e2e": ["tests/e2e/check_knowledge_bases.py", "tests/e2e/check_rag.py"]
+    }
+  }
+}

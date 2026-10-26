@@ -1,0 +1,7 @@
+{
+  "id": "nomic-embed-text",
+  "provider": "ollama",
+  "dimension": 768,
+  "version": "nomic-embed-text-v1.5",
+  "batch_size": 32
+}

@@ -1,0 +1,44 @@
+{
+  "public_openapi": "packages/api-contract/public.openapi.json",
+  "sdk": {
+    "typescript": {
+      "package": "packages/sdk-typescript",
+      "operations": "src/operations.ts",
+      "language": "TypeScript",
+      "test": "make test-typescript",
+      "runtime": "Node 20+ / browser"
+    },
+    "go": {
+      "package": "packages/sdk-go",
+      "operations": "operations.go",
+      "language": "Go",
+      "test": "make test-go-sdk",
+      "runtime": "Go 1.23+"
+    },
+    "php": {
+      "package": "packages/sdk-php",
+      "operations": "src/Operations.php",
+      "language": "PHP",
+      "test": "make test-php",
+      "runtime": "PHP 8.2+"
+    }
+  },
+  "integrations": {
+    "laravel": {
+      "package": "packages/sdk-php",
+      "example": "examples/laravel",
+      "docs": "docs/laravel.md"
+    },
+    "widget": {
+      "package": "packages/chat-widget",
+      "example": "examples/widget",
+      "docs": "packages/chat-widget/README.md"
+    },
+    "console": {
+      "package": "apps/console",
+      "test": "make test-console",
+      "browser_test": "make test-console-browser",
+      "docs": "docs/console.md"
+    }
+  }
+}

@@ -1,0 +1,197 @@
+name: ${COMPOSE_PROJECT_NAME:-uai}
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_DB: uai
+      POSTGRES_USER: uai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U uai -d uai']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  runtime:
+    image: uai-runtime:0.1.0
+    build:
+      context: .
+      dockerfile: deploy/docker/runtime.Dockerfile
+    environment:
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env}
+      MODEL_BASE_URL: ${MODEL_BASE_URL:?Set MODEL_BASE_URL in .env}
+      MODEL_API_KEY: ${MODEL_API_KEY:-}
+      MODEL_NAME: ${MODEL_NAME:?Set MODEL_NAME in .env}
+      MODEL_MAX_TOKENS: ${MODEL_MAX_TOKENS:-1024}
+      MODEL_PROVIDER: ${MODEL_PROVIDER:-openai-compatible}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      UAI_EGRESS_ALLOW: ${UAI_EGRESS_ALLOW:-ollama:11434}
+      UAI_STORAGE_DIR: /var/lib/uai/blobs
+      UAI_STORAGE_BACKEND: ${UAI_STORAGE_BACKEND:-filesystem}
+      TOOL_ALLOWED_CONNECTORS: ${TOOL_ALLOWED_CONNECTORS:-}
+      GATEWAY_URL: http://gateway:8080
+      MODEL_TOOL_CALLING: ${MODEL_TOOL_CALLING:-false}
+      MODEL_STRUCTURED_OUTPUT: ${MODEL_STRUCTURED_OUTPUT:-false}
+      MODEL_CONTEXT_WINDOW: ${MODEL_CONTEXT_WINDOW:-}
+      ISOLATED_PLUGIN_URL: ${ISOLATED_PLUGIN_URL:-}
+      ISOLATED_PLUGIN_TOKEN: ${ISOLATED_PLUGIN_TOKEN:-}
+      ISOLATED_PLUGIN_MANIFEST: ${ISOLATED_PLUGIN_MANIFEST:-}
+      UAI_OTEL_ENDPOINT: ${UAI_OTEL_ENDPOINT:-}
+      UAI_MODEL_COST_INPUT_PER_MILLION: ${UAI_MODEL_COST_INPUT_PER_MILLION:-}
+      UAI_MODEL_COST_OUTPUT_PER_MILLION: ${UAI_MODEL_COST_OUTPUT_PER_MILLION:-}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    networks: [backend, model-egress]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/internal/v1/health',timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - blob-data:/var/lib/uai/blobs
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 140s
+    restart: unless-stopped
+  gateway:
+    image: uai-gateway:0.1.0
+    build:
+      context: .
+      dockerfile: deploy/docker/gateway.Dockerfile
+    environment:
+      DATABASE_URL: postgres://uai:${POSTGRES_PASSWORD}@postgres:5432/uai?sslmode=disable
+      UAI_API_KEY_SHA256: ${UAI_API_KEY_SHA256:-}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env}
+      RUNTIME_URL: http://runtime:8000
+      MODEL_NAME: ${MODEL_NAME}
+      UAI_RATE_LIMIT: ${UAI_RATE_LIMIT:-120}
+      UAI_RATE_LIMIT_PER_PRINCIPAL: ${UAI_RATE_LIMIT_PER_PRINCIPAL:-120}
+      UAI_WIDGET_ORIGINS: ${UAI_WIDGET_ORIGINS:-}
+      UAI_WIDGET_RATE_LIMIT: ${UAI_WIDGET_RATE_LIMIT:-60}
+      UAI_RETENTION_CONVERSATION_DAYS: ${UAI_RETENTION_CONVERSATION_DAYS:-0}
+      UAI_RETENTION_AUDIT_DAYS: ${UAI_RETENTION_AUDIT_DAYS:-0}
+      UAI_RETENTION_APPROVAL_DAYS: ${UAI_RETENTION_APPROVAL_DAYS:-0}
+      UAI_RETENTION_CLEANUP_DAYS: ${UAI_RETENTION_CLEANUP_DAYS:-0}
+      UAI_OTEL_ENDPOINT: ${UAI_OTEL_ENDPOINT:-}
+    ports:
+      - '${UAI_BIND_ADDRESS:-127.0.0.1}:${UAI_PORT:-8080}:8080'
+    networks: [backend, frontend]
+    depends_on:
+      postgres: {condition: service_healthy}
+      runtime: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8080/v1/health']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 145s
+    restart: unless-stopped
+  worker:
+    image: uai-worker:0.1.0
+    build:
+      context: .
+      dockerfile: deploy/docker/worker.Dockerfile
+    profiles: [worker, full]
+    environment:
+      DATABASE_URL: postgres://uai:${POSTGRES_PASSWORD}@postgres:5432/uai?sslmode=disable
+      UAI_STORAGE_BACKEND: ${UAI_STORAGE_BACKEND:-filesystem}
+      UAI_STORAGE_DIR: /var/lib/uai/blobs
+      UAI_WORKER_MAX_ATTEMPTS: ${UAI_WORKER_MAX_ATTEMPTS:-3}
+      UAI_WORKER_LEASE_SECONDS: ${UAI_WORKER_LEASE_SECONDS:-300}
+      UAI_WORKER_POLL_SECONDS: ${UAI_WORKER_POLL_SECONDS:-2}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      UAI_OTEL_ENDPOINT: ${UAI_OTEL_ENDPOINT:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-ollama}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
+      EMBEDDING_VERSION: ${EMBEDDING_VERSION:-nomic-embed-text-v1.5}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-768}
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-http://ollama:11434}
+      UAI_EGRESS_ALLOW: ${UAI_EGRESS_ALLOW:-ollama:11434}
+    volumes:
+      - blob-data:/var/lib/uai/blobs
+    networks: [backend, model-egress]
+    depends_on:
+      postgres: {condition: service_healthy}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+  qdrant:
+    image: qdrant/qdrant:v1.15.0
+    profiles: [rag, full]
+    volumes:
+      - qdrant-data:/qdrant/storage
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, 'bash -c "exec 3<>/dev/tcp/127.0.0.1/6333"']
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+  console:
+    image: uai-console:0.1.0
+    build:
+      context: .
+      dockerfile: deploy/docker/console.Dockerfile
+    environment:
+      UAI_GATEWAY_URL: http://gateway:8080
+      ORIGIN: ${CONSOLE_ORIGIN:-http://localhost:3000}
+      # SvelteKit default is 512K; document upload allows 20 MiB plus multipart overhead.
+      BODY_SIZE_LIMIT: 24M
+    ports:
+      - '${CONSOLE_BIND_ADDRESS:-127.0.0.1}:${CONSOLE_PORT:-3000}:3000'
+    networks: [frontend]
+    depends_on:
+      gateway:
+        condition: service_healthy
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+  rustfs:
+    image: rustfs/rustfs@sha256:9ca9559533b537d10482fe923288b676ad08f92a7069d9a17327fbae3cab688b
+    profiles: [s3]
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:?Set RUSTFS_ACCESS_KEY in .env}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:?Set RUSTFS_SECRET_KEY in .env}
+      RUSTFS_VOLUMES: /data
+    ports:
+      - '127.0.0.1:${RUSTFS_PORT:-9000}:9000'
+    volumes:
+      - rustfs-data:/data
+    networks: [backend, frontend]
+    healthcheck:
+      test: [CMD-SHELL, 'curl -fsS http://127.0.0.1:9000/health >/dev/null']
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  ollama:
+    image: ollama/ollama:0.6.8
+    profiles: [local-ai, full]
+    volumes:
+      - ollama-data:/root/.ollama
+    networks: [backend, model-egress]
+    restart: unless-stopped
+volumes:
+  postgres-data:
+  ollama-data:
+  blob-data:
+  qdrant-data:
+  rustfs-data:
+networks:
+  backend:
+    internal: true
+  frontend:
+  model-egress:

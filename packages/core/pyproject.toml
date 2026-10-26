@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uai-core"
+version = "0.1.0"
+description = "Typed execution contracts for Universal AI Kit"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.14.1,<3",
+    "jsonschema==4.26.0",
+    "opentelemetry-api>=1.30,<2",
+    "opentelemetry-sdk>=1.30,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.30,<2",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+uai_core = ["py.typed"]

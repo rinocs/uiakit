@@ -1,0 +1,10 @@
+{
+  "id": "llama3.2:3b",
+  "provider": "openai-compatible",
+  "capabilities": [
+    "chat",
+    "streaming"
+  ],
+  "max_output_tokens": 1024,
+  "context_window": null
+}
