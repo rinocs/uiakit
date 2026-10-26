@@ -29,8 +29,8 @@
 
 <header class="page-head">
   <div>
-    <p class="eyebrow">Approvazione · {approval.status}</p>
     <h1>{approval.tool_id}</h1>
+    <p class="page-context">Approvazione · {approval.status}</p>
     <p class="muted">Run {approval.run_id} · richiesta da {approval.requested_by}</p>
   </div>
   <a class="button secondary" href="/approvals">Torna all'elenco</a>

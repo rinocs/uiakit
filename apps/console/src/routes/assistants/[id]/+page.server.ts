@@ -1,6 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { AssistantPatch } from '@universal-ai-kit/sdk';
 import { clientFor, gatewayMessage } from '$lib/server/gateway';
+import { assistantSettingsFrom } from '$lib/server/assistant-settings';
 
 const directivePattern = /^[a-z][a-z0-9_.-]{0,99}$/;
 
@@ -22,7 +23,12 @@ export const load = async ({ params, locals }) => {
       client.assistants.versions(params.id),
       client.models.list(),
     ]);
-    return { assistant, versions, models, principal: locals.session!.principal };
+    const catalogs = await Promise.allSettled([client.tools.list(), client.knowledgeBases.list()]);
+    const tools = catalogs[0].status === 'fulfilled' ? catalogs[0].value : [];
+    const knowledgeBases = catalogs[1].status === 'fulfilled' ? catalogs[1].value : [];
+    const catalogWarning = catalogs.some((result) => result.status === 'rejected')
+      ? 'Alcuni cataloghi non sono disponibili. Le selezioni esistenti vengono mantenute; puoi modificare gli altri parametri.' : null;
+    return { assistant, versions, models, tools, knowledgeBases, catalogWarning, principal: locals.session!.principal };
   } catch (cause) {
     throw error(404, gatewayMessage(cause));
   }
@@ -30,19 +36,24 @@ export const load = async ({ params, locals }) => {
 
 export const actions = {
   update: async ({ request, params, locals }) => {
+    if (locals.session!.principal.role === 'reader') throw error(403, 'Accesso in sola lettura.');
     const data = await request.formData();
+    const settings = assistantSettingsFrom(data);
     const ifMatch = String(data.get('ifMatch') ?? '');
     const values = {
+      ...settings.values,
       name: String(data.get('name') ?? '').trim(),
       model: String(data.get('model') ?? '').trim(),
       system_prompt: String(data.get('system_prompt') ?? ''),
       directives: String(data.get('directives') ?? ''),
     };
     const directives = directivesFrom(data.get('directives'));
-    if (!values.name || !values.model || directives === null) {
+    if (!values.name || values.name.length > 200 || !values.model || values.system_prompt.length > 16000 || directives === null) {
       return fail(422, { error: 'Nome, modello o direttive non validi.', values });
     }
+    if (settings.error) return fail(422, { error: settings.error, values });
     const patch: AssistantPatch = {
+      ...settings.patch,
       name: values.name,
       model: values.model,
       system_prompt: values.system_prompt,

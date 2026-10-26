@@ -8,7 +8,6 @@
 
 <header class="page-head">
   <div>
-    <p class="eyebrow">Conversazione</p>
     <h1>Cronologia</h1>
     <p class="muted small"><code>{data.conversationId}</code></p>
   </div>

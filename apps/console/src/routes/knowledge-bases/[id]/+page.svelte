@@ -37,8 +37,8 @@
 
 <header class="page-head">
   <div>
-    <p class="eyebrow">Knowledge base · revisione {data.knowledgeBase.revision}</p>
     <h1>{data.knowledgeBase.name}</h1>
+    <p class="page-context">Knowledge base · revisione {data.knowledgeBase.revision}</p>
     <p class="muted">
       {data.knowledgeBase.description || 'Nessuna descrizione.'} · versione attiva
       {data.knowledgeBase.active_version}

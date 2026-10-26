@@ -10,7 +10,6 @@
 
 <header class="page-head">
   <div>
-    <p class="eyebrow">Test chatbot</p>
     <h1>Playground</h1>
     {#if data.conversationId}
       <p class="muted small">Conversazione <code>{data.conversationId}</code></p>

@@ -41,3 +41,4 @@ Thumbs.db
 
 # PHP test cache
 **/.phpunit.result.cache
+.bootstrap-admin-key

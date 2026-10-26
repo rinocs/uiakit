@@ -8,7 +8,6 @@
 
 <header class="page-head">
   <div>
-    <p class="eyebrow">Esecuzioni</p>
     <h1>Run</h1>
     {#if data.conversation}
       <p class="muted small">Filtrati per conversazione <code>{data.conversation}</code></p>

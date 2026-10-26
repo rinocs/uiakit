@@ -147,6 +147,7 @@ services:
     environment:
       UAI_GATEWAY_URL: http://gateway:8080
       ORIGIN: ${CONSOLE_ORIGIN:-http://localhost:3000}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
       # SvelteKit default is 512K; document upload allows 20 MiB plus multipart overhead.
       BODY_SIZE_LIMIT: 24M
     ports:

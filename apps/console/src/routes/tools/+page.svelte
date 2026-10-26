@@ -8,7 +8,6 @@
 
 <header class="page-head">
   <div>
-    <p class="eyebrow">Estensioni</p>
     <h1>Tool</h1>
   </div>
 </header>

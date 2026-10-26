@@ -8,7 +8,6 @@
 
 <header class="page-head">
   <div>
-    <p class="eyebrow">Configurazione</p>
     <h1>Assistenti</h1>
   </div>
 </header>

@@ -8,7 +8,6 @@
 
 <header class="page-head">
   <div>
-    <p class="eyebrow">Runtime</p>
     <h1>Modelli</h1>
   </div>
 </header>

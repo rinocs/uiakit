@@ -8,7 +8,6 @@
 
 <header class="page-head">
   <div>
-    <p class="eyebrow">Fonte autorizzata</p>
     <h1>{data.document.title || data.document.filename}</h1>
     <p class="muted">
       {data.document.filename} · {data.document.mime_type} · {data.document.ingestion_state}

@@ -7,7 +7,6 @@
 </svelte:head>
 
 <section class="auth-card">
-  <p class="eyebrow">Admin console</p>
   <h1>Accedi</h1>
   <p class="muted">
     La key viene usata solo dal server SvelteKit e conservata in memoria di

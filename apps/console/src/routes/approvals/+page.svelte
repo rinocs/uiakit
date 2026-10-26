@@ -25,7 +25,6 @@
 
 <header class="page-head">
   <div>
-    <p class="eyebrow">Sicurezza</p>
     <h1>Approvazioni</h1>
   </div>
 </header>

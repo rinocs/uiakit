@@ -8,7 +8,6 @@
 
 <header class="page-head">
   <div>
-    <p class="eyebrow">RAG</p>
     <h1>Knowledge base</h1>
   </div>
 </header>

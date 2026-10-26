@@ -10,8 +10,8 @@
 
 <header class="page-head">
   <div>
-    <p class="eyebrow">Run · {run.status}</p>
     <h1>{run.model}</h1>
+    <p class="page-context">Run · {run.status}</p>
     <p class="muted">
       Assistente {run.assistant_id} v{run.assistant_version} ·
       <a href={`/conversations/${run.conversation_id}`}>conversazione</a>
