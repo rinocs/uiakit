@@ -155,8 +155,8 @@ def main():
         compose('up', '-d', '--wait', '--wait-timeout', '180',
                 'mock-provider', 'runtime', 'gateway', capture=True)
         wait_health()
-        assert psql("SELECT max(version) FROM schema_migrations") == '15'
-        report['new_schema'] = 15
+        assert psql("SELECT max(version) FROM schema_migrations") == '16'
+        report['new_schema'] = 16
 
         assistant = checked('/v1/assistants', method='POST',
                             body={'name': 'Upgrade assistant', 'model': 'test',
@@ -204,12 +204,12 @@ def main():
         report['graceful_shutdown'] = True
 
         compose('stop', 'gateway', capture=True)
-        psql("INSERT INTO schema_migrations(version) VALUES (16)")
+        psql("INSERT INTO schema_migrations(version) VALUES (17)")
         result = compose('run', '--rm', '--no-deps', 'gateway',
                          capture=True, check=False)
         assert result.returncode != 0, 'newer database schema was accepted'
         report['newer_schema_refused'] = True
-        psql("DELETE FROM schema_migrations WHERE version=16")
+        psql("DELETE FROM schema_migrations WHERE version=17")
         compose('up', '-d', '--wait', '--wait-timeout', '90', 'gateway', capture=True)
         wait_health()
         _, replay = sse(path, 'Ciao upgrade', 'upgrade-seed')

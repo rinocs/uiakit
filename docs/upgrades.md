@@ -61,8 +61,8 @@ migration fails, does not start the server. After startup check:
 - runtime and worker log/health.
 
 `tests/e2e/check_upgrade.py` simulates a stack with pattern 14, start the binary
-current (diagram 15), verifies data and replay, performs an orderly shutdown during
-a run and finally reject a pattern 16. Command:
+current (diagram 16), verifies data and replay, performs an orderly shutdown during
+a run and finally reject a pattern 17. Command:
 
 ```bash
 make e2e-upgrade

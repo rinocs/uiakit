@@ -5,12 +5,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 Capability = Literal['chat', 'streaming', 'tool_calling', 'structured_output',
                      'embeddings', 'reranking', 'vision']
+ProviderKind = Literal['openai-compatible', 'ollama']
 
 
 class ModelDefinition(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True)
     id: str = Field(min_length=1, max_length=200)
-    provider: Literal['openai-compatible'] = 'openai-compatible'
+    provider: ProviderKind = 'openai-compatible'
     capabilities: frozenset[Capability]
     max_output_tokens: int | None = Field(default=None, gt=0)
     context_window: int | None = Field(default=None, gt=0)

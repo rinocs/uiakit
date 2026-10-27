@@ -10,14 +10,17 @@
     ] },
     { label: 'Configurazione', links: [
       { href: '/assistants', label: 'Assistenti', icon: 'M5 8h14v12H5z M9 12v2 M15 12v2 M9 17h6 M12 4v4 M10 4h4' },
+      { href: '/provider', label: 'Provider', icon: 'M4 7h16v10H4z M8 12h8 M8 15h5 M7 7V4 M17 7V4' },
       { href: '/models', label: 'Modelli', icon: 'm12 3 9 5-9 5-9-5z M3 12l9 5 9-5 M3 16l9 5 9-5' },
       { href: '/knowledge-bases', label: 'Knowledge base', icon: 'M12 6v15 M3 4c3-1 6 0 9 2 3-2 6-3 9-2v14c-3-1-6 0-9 2-3-2-6-3-9-2z' },
       { href: '/tools', label: 'Tool', icon: 'M14 6V3h7v7h-3 M14 3l-4 4 7 7 4-4 M10 10 3 17v4h4l7-7' },
       { href: '/plugins', label: 'Plugin', icon: 'M8 3v5 M16 3v5 M5 8h14v3a7 7 0 0 1-14 0z M12 18v3' },
+      { href: '/credentials', label: 'Credenziali', icon: 'M15 7a4 4 0 1 1-7.5 1.9L3 13.4V17h3v-2h2v-2h2l2.5-2.5A4 4 0 0 0 15 7z' },
     ] },
     { label: 'Monitoraggio', links: [
       { href: '/runs', label: 'Run', icon: 'M3 12h4l3-8 4 16 3-8h4' },
       { href: '/approvals', label: 'Approvazioni', icon: 'm12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6z m-4 9 3 3 5-6' },
+      { href: '/audit', label: 'Registro audit', icon: 'M6 3h12v18l-3-2-3 2-3-2-3 2z M9 8h6 M9 12h6 M9 16h3' },
     ] },
   ];
 </script>

@@ -1,0 +1,510 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/url"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+)
+
+var providerSecretRef = regexp.MustCompile(`^(MODEL_API_KEY|PROVIDER_API_KEY_[A-Z0-9_]{1,63})$`)
+
+type ProviderModel struct {
+	ID            string   `json:"id"`
+	Capabilities  []string `json:"capabilities"`
+	ContextWindow *int     `json:"context_window"`
+}
+
+type ProviderConfiguration struct {
+	Revision        int             `json:"revision"`
+	Provider        string          `json:"provider"`
+	BaseURL         string          `json:"base_url"`
+	APIKeyRef       string          `json:"api_key_ref"`
+	MaxOutputTokens int             `json:"max_output_tokens"`
+	Models          []ProviderModel `json:"models"`
+}
+
+type ProviderView struct {
+	Revision         int               `json:"revision"`
+	Managed          bool              `json:"managed"`
+	Applied          bool              `json:"applied"`
+	Provider         string            `json:"provider"`
+	BaseURL          string            `json:"base_url"`
+	APIKeyRef        string            `json:"api_key_ref"`
+	APIKeyConfigured bool              `json:"api_key_configured"`
+	MaxOutputTokens  int               `json:"max_output_tokens"`
+	Models           []ModelDefinition `json:"models"`
+}
+
+type ProviderUpdate struct {
+	Provider        string          `json:"provider"`
+	BaseURL         string          `json:"base_url"`
+	APIKeyRef       string          `json:"api_key_ref"`
+	MaxOutputTokens int             `json:"max_output_tokens"`
+	Models          []ProviderModel `json:"models"`
+}
+
+type ProviderDiscovery struct {
+	Provider  string `json:"provider"`
+	BaseURL   string `json:"base_url"`
+	APIKeyRef string `json:"api_key_ref"`
+}
+
+type ProviderModelList struct {
+	Models []string `json:"models"`
+}
+
+type runtimeProviderState struct {
+	Revision         int               `json:"revision"`
+	Provider         string            `json:"provider"`
+	BaseURL          string            `json:"base_url"`
+	APIKeyRef        string            `json:"api_key_ref"`
+	APIKeyConfigured bool              `json:"api_key_configured"`
+	MaxOutputTokens  int               `json:"max_output_tokens"`
+	Models           []ModelDefinition `json:"models"`
+}
+
+type providerRuntimeConfig struct {
+	Revision        int             `json:"revision"`
+	Provider        string          `json:"provider"`
+	BaseURL         string          `json:"base_url"`
+	APIKeyRef       string          `json:"api_key_ref"`
+	MaxOutputTokens int             `json:"max_output_tokens"`
+	Models          []ProviderModel `json:"models"`
+}
+
+func validProviderKind(value string) bool {
+	return value == "openai-compatible" || value == "ollama"
+}
+
+func validProviderBaseURL(value string) bool {
+	if value == "" || len(value) > 2000 {
+		return false
+	}
+	parsed, err := url.Parse(value)
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") &&
+		parsed.Host != "" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == ""
+}
+
+func validProviderSecretRef(value string) bool {
+	return value == "" || providerSecretRef.MatchString(value)
+}
+
+func validModelID(value string) bool {
+	if value == "" || len(value) > 200 || value != strings.TrimSpace(value) {
+		return false
+	}
+	for _, char := range value {
+		if char < 0x20 || char == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func validProviderConfiguration(config ProviderConfiguration) bool {
+	if !validProviderKind(config.Provider) || !validProviderBaseURL(config.BaseURL) ||
+		!validProviderSecretRef(config.APIKeyRef) || config.MaxOutputTokens < 1 ||
+		config.MaxOutputTokens > 8192 || len(config.Models) < 1 || len(config.Models) > 50 {
+		return false
+	}
+	if config.Provider == "ollama" && config.APIKeyRef != "" {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, model := range config.Models {
+		if !validModelID(model.ID) || seen[model.ID] {
+			return false
+		}
+		seen[model.ID] = true
+		if model.ContextWindow != nil && *model.ContextWindow < 1 {
+			return false
+		}
+		caps := map[string]bool{}
+		for _, capability := range model.Capabilities {
+			if capability != "tool_calling" && capability != "structured_output" || caps[capability] {
+				return false
+			}
+			if config.Provider == "ollama" {
+				return false
+			}
+			caps[capability] = true
+		}
+	}
+	return true
+}
+
+func validProviderDiscovery(discovery ProviderDiscovery) bool {
+	if !validProviderKind(discovery.Provider) || !validProviderBaseURL(discovery.BaseURL) ||
+		!validProviderSecretRef(discovery.APIKeyRef) {
+		return false
+	}
+	return discovery.Provider != "ollama" || discovery.APIKeyRef == ""
+}
+
+func providerDefinitions(config ProviderConfiguration) []ModelDefinition {
+	definitions := make([]ModelDefinition, 0, len(config.Models))
+	maxTokens := config.MaxOutputTokens
+	for _, model := range config.Models {
+		capabilities := append([]string{"chat", "streaming"}, model.Capabilities...)
+		sort.Strings(capabilities)
+		definitions = append(definitions, ModelDefinition{
+			ID: model.ID, Provider: config.Provider, Capabilities: capabilities,
+			MaxOutputTokens: &maxTokens, ContextWindow: model.ContextWindow,
+		})
+	}
+	sort.Slice(definitions, func(i, j int) bool { return definitions[i].ID < definitions[j].ID })
+	return definitions
+}
+
+func runtimeProviderConfig(config ProviderConfiguration) providerRuntimeConfig {
+	return providerRuntimeConfig{
+		Revision: config.Revision, Provider: config.Provider, BaseURL: config.BaseURL,
+		APIKeyRef: config.APIKeyRef, MaxOutputTokens: config.MaxOutputTokens,
+		Models: config.Models,
+	}
+}
+
+func providerView(config ProviderConfiguration, state *runtimeProviderState, managed bool) ProviderView {
+	view := ProviderView{
+		Revision: config.Revision, Managed: managed, Applied: false,
+		Provider: config.Provider, BaseURL: config.BaseURL, APIKeyRef: config.APIKeyRef,
+		MaxOutputTokens: config.MaxOutputTokens, Models: providerDefinitions(config),
+	}
+	if state != nil {
+		view.APIKeyConfigured = state.APIKeyConfigured
+		view.Applied = !managed || state.Revision == config.Revision
+	}
+	if !managed {
+		view.Provider, view.BaseURL, view.APIKeyRef = state.Provider, state.BaseURL, state.APIKeyRef
+		view.MaxOutputTokens, view.Models = state.MaxOutputTokens, state.Models
+	}
+	return view
+}
+
+func (s *server) runtimeProviderRequest(ctx context.Context, method, path string,
+	body any) (int, []byte, error) {
+	var reader io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return 0, nil, err
+		}
+		reader = bytes.NewReader(data)
+	}
+	request, err := http.NewRequestWithContext(ctx, method, s.config.RuntimeURL+path, reader)
+	if err != nil {
+		return 0, nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+s.config.InternalKey)
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	client := &http.Client{Timeout: 20 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	response, err := client.Do(request)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	return response.StatusCode, data, err
+}
+
+func fetchRuntimeProviderState(ctx context.Context, s *server) (runtimeProviderState, error) {
+	status, data, err := s.runtimeProviderRequest(ctx, "GET", "/internal/v1/provider/state", nil)
+	if err != nil {
+		return runtimeProviderState{}, err
+	}
+	if status != 200 {
+		return runtimeProviderState{}, errors.New("provider_state_unavailable")
+	}
+	var state runtimeProviderState
+	err = json.Unmarshal(data, &state)
+	return state, err
+}
+
+func runtimeErrorCode(data []byte) string {
+	var body struct {
+		Detail string `json:"detail"`
+	}
+	if json.Unmarshal(data, &body) == nil && body.Detail != "" {
+		return body.Detail
+	}
+	return "runtime_error"
+}
+
+func (s *server) syncRuntimeModels(ctx context.Context) error {
+	models, err := loadRuntimeModels(ctx, s.config)
+	if err != nil {
+		return err
+	}
+	return s.store.SyncModels(ctx, models)
+}
+
+func (s *server) applySavedProvider(ctx context.Context) error {
+	config, err := s.store.ProviderConfiguration(ctx)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	status, data, err := s.runtimeProviderRequest(ctx, "POST", "/internal/v1/provider/apply",
+		runtimeProviderConfig(config))
+	if err != nil {
+		return err
+	}
+	if status != 200 {
+		return errors.New(runtimeErrorCode(data))
+	}
+	return nil
+}
+
+func providerExpected(w http.ResponseWriter, r *http.Request) (int, bool) {
+	header := r.Header.Get("If-Match")
+	if header == "" {
+		problem(w, 428, "if_match_required")
+		return 0, false
+	}
+	number, err := strconv.Unquote(header)
+	if err != nil {
+		problem(w, 422, "invalid_if_match")
+		return 0, false
+	}
+	expected, err := strconv.Atoi(number)
+	if err != nil || expected < 0 || number != strconv.Itoa(expected) {
+		problem(w, 422, "invalid_if_match")
+		return 0, false
+	}
+	return expected, true
+}
+
+func removedModelInUse(ctx context.Context, s *server, current, next []ProviderModel) (string, error) {
+	keep := map[string]bool{}
+	for _, model := range next {
+		keep[model.ID] = true
+	}
+	for _, model := range current {
+		if keep[model.ID] {
+			continue
+		}
+		count, err := s.store.AssistantsUsingModel(ctx, model.ID)
+		if err != nil {
+			return "", err
+		}
+		if count > 0 {
+			return model.ID, nil
+		}
+	}
+	return "", nil
+}
+
+func (s *server) provider(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	config, err := s.store.ProviderConfiguration(ctx)
+	if errors.Is(err, ErrNotFound) {
+		state, err := fetchRuntimeProviderState(ctx, s)
+		if err != nil {
+			problem(w, 503, "runtime_unavailable")
+			return
+		}
+		w.Header().Set("ETag", etag(0))
+		respond(w, 200, providerView(ProviderConfiguration{}, &state, false))
+		return
+	}
+	if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	var state *runtimeProviderState
+	if current, err := fetchRuntimeProviderState(ctx, s); err == nil {
+		state = &current
+	}
+	w.Header().Set("ETag", etag(config.Revision))
+	respond(w, 200, providerView(config, state, true))
+}
+
+func (s *server) updateProvider(w http.ResponseWriter, r *http.Request) {
+	expected, ok := providerExpected(w, r)
+	if !ok {
+		return
+	}
+	var body ProviderUpdate
+	if !decode(w, r, &body) {
+		return
+	}
+	next := ProviderConfiguration{
+		Provider: body.Provider, BaseURL: body.BaseURL, APIKeyRef: body.APIKeyRef,
+		MaxOutputTokens: body.MaxOutputTokens, Models: body.Models,
+	}
+	if !validProviderConfiguration(next) {
+		problem(w, 422, "invalid_configuration")
+		return
+	}
+	ctx := r.Context()
+	current, err := s.store.ProviderConfiguration(ctx)
+	var currentModels []ProviderModel
+	switch {
+	case errors.Is(err, ErrNotFound):
+		state, stateErr := fetchRuntimeProviderState(ctx, s)
+		if stateErr != nil {
+			problem(w, 503, "runtime_unavailable")
+			return
+		}
+		for _, model := range state.Models {
+			currentModels = append(currentModels, ProviderModel{ID: model.ID})
+		}
+	case err != nil:
+		problem(w, 500, "store_error")
+		return
+	default:
+		currentModels = current.Models
+	}
+	if modelID, err := removedModelInUse(ctx, s, currentModels, next.Models); err != nil {
+		problem(w, 500, "store_error")
+		return
+	} else if modelID != "" {
+		problem(w, 409, "model_in_use")
+		return
+	}
+	next.Revision = expected + 1
+	status, data, err := s.runtimeProviderRequest(ctx, "POST", "/internal/v1/provider/validate",
+		runtimeProviderConfig(next))
+	if err != nil {
+		problem(w, 503, "runtime_unavailable")
+		return
+	}
+	if status == 422 {
+		problem(w, 422, runtimeErrorCode(data))
+		return
+	}
+	if status != 200 {
+		problem(w, 503, "runtime_unavailable")
+		return
+	}
+	saved, err := s.store.SaveProviderConfiguration(ctx, expected, next)
+	if errors.Is(err, ErrConflict) {
+		problem(w, 412, "version_conflict")
+		return
+	}
+	if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	status, data, err = s.runtimeProviderRequest(ctx, "POST", "/internal/v1/provider/apply",
+		runtimeProviderConfig(saved))
+	if err != nil || status != 200 {
+		problem(w, 502, "provider_pending")
+		return
+	}
+	var state runtimeProviderState
+	if err := json.Unmarshal(data, &state); err != nil {
+		problem(w, 502, "provider_pending")
+		return
+	}
+	if err := s.syncRuntimeModels(ctx); err != nil {
+		problem(w, 502, "provider_pending")
+		return
+	}
+	w.Header().Set("ETag", etag(saved.Revision))
+	respond(w, 200, providerView(saved, &state, true))
+}
+
+func (s *server) discoverProviderModels(w http.ResponseWriter, r *http.Request) {
+	var body ProviderDiscovery
+	if !decode(w, r, &body) {
+		return
+	}
+	if !validProviderDiscovery(body) {
+		problem(w, 422, "invalid_configuration")
+		return
+	}
+	status, data, err := s.runtimeProviderRequest(r.Context(), "POST",
+		"/internal/v1/provider/models", body)
+	if err != nil {
+		problem(w, 503, "runtime_unavailable")
+		return
+	}
+	if status == 422 {
+		problem(w, 422, runtimeErrorCode(data))
+		return
+	}
+	if status != 200 {
+		problem(w, 503, "runtime_unavailable")
+		return
+	}
+	var found ProviderModelList
+	if err := json.Unmarshal(data, &found); err != nil {
+		problem(w, 502, "runtime_unavailable")
+		return
+	}
+	if found.Models == nil {
+		found.Models = []string{}
+	}
+	respond(w, 200, found)
+}
+
+func (s *server) providerRoutes(r chi.Router) {
+	r.With(requireScope("providers:read")).Get("/v1/provider", s.provider)
+	r.With(requireScope("providers:write")).Put("/v1/provider", s.updateProvider)
+	r.With(requireScope("providers:write")).Post("/v1/provider/models", s.discoverProviderModels)
+}
+
+func (s *server) internalProviderRoutes(r chi.Router) {
+	r.Route("/internal/v1/provider", func(r chi.Router) {
+		r.Use(s.requireInternal)
+		r.Get("/desired", func(w http.ResponseWriter, r *http.Request) {
+			config, err := s.store.ProviderConfiguration(r.Context())
+			if errors.Is(err, ErrNotFound) {
+				problem(w, 404, "not_configured")
+				return
+			}
+			if err != nil {
+				problem(w, 503, "store_error")
+				return
+			}
+			respond(w, 200, runtimeProviderConfig(config))
+		})
+		r.Post("/applied", func(w http.ResponseWriter, r *http.Request) {
+			var body struct {
+				Revision int `json:"revision"`
+			}
+			if !decode(w, r, &body) {
+				return
+			}
+			if body.Revision < 1 {
+				problem(w, 422, "invalid_configuration")
+				return
+			}
+			config, err := s.store.ProviderConfiguration(r.Context())
+			if errors.Is(err, ErrNotFound) {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			if err != nil {
+				problem(w, 503, "store_error")
+				return
+			}
+			if config.Revision != body.Revision {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			if err := s.syncRuntimeModels(r.Context()); err != nil {
+				problem(w, 503, "catalog_unavailable")
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		})
+	})
+}

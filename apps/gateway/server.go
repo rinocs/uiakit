@@ -120,11 +120,13 @@ func NewServer(store Store, c Config) *server {
 		s.approvalRoutes(r)
 		s.auditRoutes(r)
 		s.credentialRoutes(r)
+		s.providerRoutes(r)
 		s.widgetRoutes(r)
 		s.pluginRoutes(r)
 	})
 	s.internalToolExecutionRoutes(r)
 	s.internalRetentionRoutes(r)
+	s.internalProviderRoutes(r)
 	s.handler = r
 	return s
 }

@@ -111,6 +111,13 @@ export const operations = {
     path: '/v1/approvals/{id}/reject',
   },
   listAuditEvents: { method: 'GET', path: '/v1/audit-events' },
+  getProvider: { method: 'GET', path: '/v1/provider' },
+  updateProvider: {
+    method: 'PUT',
+    path: '/v1/provider',
+    requiresIfMatch: true,
+  },
+  discoverProviderModels: { method: 'POST', path: '/v1/provider/models' },
   createWidgetToken: { method: 'POST', path: '/v1/widget/tokens' },
   revokeWidgetToken: {
     method: 'DELETE',

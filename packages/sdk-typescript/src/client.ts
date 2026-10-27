@@ -35,6 +35,10 @@ import type {
   MessageInput,
   ModelDefinition,
   PrincipalInfo,
+  ProviderConfiguration,
+  ProviderDiscovery,
+  ProviderModelList,
+  ProviderUpdate,
   PluginCatalog,
   PluginHealth,
   PluginSetting,
@@ -100,6 +104,7 @@ export class UniversalAIKit {
   readonly agentRuns: AgentRunsResource;
   readonly approvals: ApprovalsResource;
   readonly auditEvents: AuditEventsResource;
+  readonly provider: ProviderResource;
   readonly widgetTokens: WidgetTokensResource;
 
   readonly #apiKey: string;
@@ -127,6 +132,7 @@ export class UniversalAIKit {
     this.agentRuns = new AgentRunsResource(this);
     this.approvals = new ApprovalsResource(this);
     this.auditEvents = new AuditEventsResource(this);
+    this.provider = new ProviderResource(this);
     this.widgetTokens = new WidgetTokensResource(this);
   }
 
@@ -771,6 +777,40 @@ class ApprovalsResource {
     return this.#client.request(operations.rejectApproval, {
       ...options,
       pathParams: { id },
+    });
+  }
+}
+
+class ProviderResource {
+  readonly #client: UniversalAIKit;
+
+  constructor(client: UniversalAIKit) {
+    this.#client = client;
+  }
+
+  get(options: { signal?: AbortSignal } = {}): Promise<ProviderConfiguration> {
+    return this.#client.request(operations.getProvider, options);
+  }
+
+  update(
+    update: ProviderUpdate,
+    options: MutationOptions,
+  ): Promise<ProviderConfiguration> {
+    return this.#client.request(operations.updateProvider, {
+      body: update,
+      ifMatch: options.ifMatch,
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+    });
+  }
+
+  discoverModels(
+    discovery: ProviderDiscovery,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ProviderModelList> {
+    return this.#client.request(operations.discoverProviderModels, {
+      ...options,
+      body: discovery,
     });
   }
 }

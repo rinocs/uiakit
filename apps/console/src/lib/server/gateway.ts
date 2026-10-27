@@ -19,6 +19,14 @@ export async function principalFor(apiKey: string): Promise<SessionPrincipal> {
   };
 }
 
+export function gatewayStatus(error: unknown): number | null {
+  if (error && typeof error === 'object' && 'status' in error) {
+    const status = Number(error.status);
+    if (Number.isInteger(status) && status >= 400 && status < 600) return status;
+  }
+  return null;
+}
+
 export function gatewayMessage(error: unknown): string {
   if (error && typeof error === 'object') {
     if ('status' in error && 'code' in error) {

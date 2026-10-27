@@ -102,6 +102,12 @@ OLLAMA_BASE_URL=http://ollama:11434
 UAI_EGRESS_ALLOW=ollama:11434
 ```
 
+The environment configuration bootstraps the runtime. After logging in, an
+administrator can change the provider kind, base URL, max output tokens and the
+model catalog from `/provider`. Secret values stay in the runtime environment or
+mounted files (`MODEL_API_KEY` or `PROVIDER_API_KEY_*`) and are referenced by name;
+the runtime egress allowlist still applies.
+
 The `full` profile also runs the worker and Qdrant. For RAG, keep the embedding
 identity consistent with the model actually pulled:
 

@@ -1,10 +1,13 @@
 """Private runtime. Only the gateway can submit authorized execution context."""
-from contextlib import aclosing, ExitStack
+from contextlib import aclosing, ExitStack, suppress
+import asyncio
 import hashlib
 import hmac
 import os
+from types import MappingProxyType
 from typing import Annotated
 
+import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from .telemetry import TelemetryMiddleware
@@ -40,6 +43,11 @@ from .tool_loop import ToolCallingAgent
 from uai_core.tools import ToolDefinition
 from .models import DirectiveSelection, RunRequest
 from .provider import ModelProvider, OpenAIProvider
+from .provider_control import (ActiveProvider, ModelDiscovery, ProviderConfig,
+                               ProviderConfigError, ProviderDiscoveryConfig,
+                               ProviderModelInput, ProviderRegistry, ProviderState,
+                               ProviderValidation, control_loop, discover_models,
+                               make_active, state_of)
 
 
 def create_app(api_key: str, provider: ModelProvider, *, max_output_chars: int = 64000,
@@ -51,11 +59,32 @@ def create_app(api_key: str, provider: ModelProvider, *, max_output_chars: int =
                blob_store: BlobStore | None = None, retriever: Retriever | None = None,
                tool_policy: ToolPolicyDirective | None = None,
                execution_journal: ExecutionJournal | None = None,
-               audit_log: AuditLog | None = None) -> FastAPI:
+               audit_log: AuditLog | None = None,
+               provider_config: ProviderConfig | None = None,
+               egress: EgressPolicy | None = None,
+               control_plane_url: str | None = None,
+               discovery_transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     if len(api_key) < 8:
         raise ValueError('Internal API key must contain at least 8 characters')
     expected = hashlib.sha256(f'Bearer {api_key}'.encode()).digest()
-    app = FastAPI(title='UAI Internal Runtime', version='0.1.0', docs_url=None, redoc_url=None)
+
+    def require_internal(authorization: str) -> None:
+        if not hmac.compare_digest(hashlib.sha256(authorization.encode()).digest(), expected):
+            raise HTTPException(401, detail='unauthorized')
+
+    async def lifespan(_app: FastAPI):
+        task = (asyncio.create_task(control_loop(_app, control_plane_url, api_key))
+                if control_plane_url else None)
+        try:
+            yield
+        finally:
+            if task is not None:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+
+    app = FastAPI(title='UAI Internal Runtime', version='0.1.0', docs_url=None,
+                  redoc_url=None, lifespan=lifespan)
     app.add_middleware(TelemetryMiddleware)
 
     limits = ExecutionLimits(max_output_chars=max_output_chars, max_input_chars=max_input_chars,
@@ -64,6 +93,32 @@ def create_app(api_key: str, provider: ModelProvider, *, max_output_chars: int =
                                                        max_output_tokens=getattr(provider, 'max_tokens', None))
     if definition.id != allowed_model:
         raise ValueError('model_definition_mismatch')
+    if provider_config is None:
+        provider_config = ProviderConfig(
+            revision=0,
+            provider=definition.provider,
+            base_url=getattr(provider, 'base_url',
+                             getattr(provider, '_base_url', 'http://provider.invalid')),
+            api_key_ref='',
+            max_output_tokens=min(8192, max(1, definition.max_output_tokens
+                                            or getattr(provider, 'max_tokens', 1024) or 1024)),
+            models=[ProviderModelInput(
+                id=definition.id,
+                capabilities=frozenset(capability for capability in definition.capabilities
+                                       if capability in ('tool_calling', 'structured_output')),
+                context_window=definition.context_window,
+            )],
+        )
+    active_provider = ActiveProvider(
+        provider=provider,
+        definitions=MappingProxyType({definition.id: definition}),
+        config=provider_config,
+        api_key_configured=bool(getattr(provider, 'api_key', '')),
+    )
+    app.state.providers = ProviderRegistry(active_provider)
+    app.state.egress = egress
+    app.state.notified_revision = 0
+    app.state.discovery_transport = discovery_transport
     directives = directive_registry if directive_registry is not None else DirectiveRegistry()
     tools = tool_registry if tool_registry is not None else default_tool_registry()
     install_builtin_directives(directives)
@@ -82,9 +137,49 @@ def create_app(api_key: str, provider: ModelProvider, *, max_output_chars: int =
 
     @app.get('/internal/v1/models')
     async def models(authorization: Annotated[str, Header()] = '') -> list[ModelDefinition]:
-        if not hmac.compare_digest(hashlib.sha256(authorization.encode()).digest(), expected):
-            raise HTTPException(401, detail='unauthorized')
-        return [definition]
+        require_internal(authorization)
+        active = app.state.providers.snapshot()
+        return [active.definitions[key] for key in sorted(active.definitions)]
+
+    @app.get('/internal/v1/provider/state', response_model=ProviderState)
+    async def provider_state(authorization: Annotated[str, Header()] = '') -> ProviderState:
+        require_internal(authorization)
+        return state_of(app.state.providers.snapshot())
+
+    @app.post('/internal/v1/provider/validate', response_model=ProviderValidation)
+    async def validate_provider(
+            body: ProviderConfig,
+            authorization: Annotated[str, Header()] = '') -> ProviderValidation:
+        require_internal(authorization)
+        try:
+            active = make_active(body, app.state.egress)
+        except ProviderConfigError as error:
+            raise HTTPException(422, detail=error.code) from None
+        return ProviderValidation(api_key_configured=active.api_key_configured)
+
+    @app.post('/internal/v1/provider/apply', response_model=ProviderState)
+    async def apply_provider(
+            body: ProviderConfig,
+            authorization: Annotated[str, Header()] = '') -> ProviderState:
+        require_internal(authorization)
+        try:
+            active = make_active(body, app.state.egress)
+        except ProviderConfigError as error:
+            raise HTTPException(422, detail=error.code) from None
+        current = app.state.providers.replace(active)
+        return state_of(current)
+
+    @app.post('/internal/v1/provider/models', response_model=ModelDiscovery)
+    async def list_provider_models(
+            body: ProviderDiscoveryConfig,
+            authorization: Annotated[str, Header()] = '') -> ModelDiscovery:
+        require_internal(authorization)
+        try:
+            found = await discover_models(body, app.state.egress,
+                                          transport=app.state.discovery_transport)
+        except ProviderConfigError as error:
+            raise HTTPException(422, detail=error.code) from None
+        return ModelDiscovery(models=found)
 
     @app.get('/internal/v1/tools')
     async def tool_catalog(authorization: Annotated[str, Header()] = '') -> list[ToolDefinition]:
@@ -151,8 +246,12 @@ def create_app(api_key: str, provider: ModelProvider, *, max_output_chars: int =
 
     @app.post('/internal/v1/runs')
     async def run(body: RunRequest, authorization: Annotated[str, Header()] = ''):
-        if not hmac.compare_digest(hashlib.sha256(authorization.encode()).digest(), expected):
-            raise HTTPException(401, detail='unauthorized')
+        require_internal(authorization)
+        active = app.state.providers.snapshot()
+        provider = active.provider
+        definition = active.definitions.get(body.model)
+        if definition is None:
+            raise HTTPException(422, detail='model_unavailable')
         if body.model_snapshot is not None and body.model_snapshot != definition:
             raise HTTPException(409, detail='model_configuration_changed')
         if body.assistant is not None and (body.model != body.assistant.model
@@ -322,10 +421,12 @@ def from_env(*, directive_registry: DirectiveRegistry | None = None,
     if model_provider == 'ollama':
         provider_url = os.environ.get('OLLAMA_BASE_URL', 'http://ollama:11434')
         provider = OllamaProvider(provider_url, max_tokens=max_tokens)
+        api_key_ref = ''
     elif model_provider == 'openai-compatible':
         provider_url = os.environ['MODEL_BASE_URL']
         provider = OpenAIProvider(provider_url, secret_from_env('MODEL_API_KEY') or '',
                                   max_tokens=max_tokens)
+        api_key_ref = 'MODEL_API_KEY'
     else:
         raise ValueError('invalid_model_provider')
     if egress is not None:
@@ -343,14 +444,31 @@ def from_env(*, directive_registry: DirectiveRegistry | None = None,
     if os.environ.get('MODEL_STRUCTURED_OUTPUT', '').lower() in ('1', 'true', 'yes'):
         capabilities.add('structured_output')
     context_window = os.environ.get('MODEL_CONTEXT_WINDOW', '').strip()
-    model_definition = ModelDefinition(id=model, capabilities=capabilities,
+    model_definition = ModelDefinition(id=model, provider=model_provider,
+                                       capabilities=capabilities,
                                        max_output_tokens=getattr(provider, 'max_tokens', None),
                                        context_window=int(context_window) if context_window else None)
     gateway_url = os.environ.get('GATEWAY_URL', '').rstrip('/')
+    provider_config = ProviderConfig(
+        revision=0,
+        provider=model_provider,
+        base_url=provider_url,
+        api_key_ref=api_key_ref,
+        max_output_tokens=max_tokens,
+        models=[ProviderModelInput(
+            id=model,
+            capabilities=frozenset(capability for capability in capabilities
+                                   if capability in ('tool_calling', 'structured_output')
+                                   and model_provider == 'openai-compatible'),
+            context_window=int(context_window) if context_window else None,
+        )],
+    )
     execution_journal = (GatewayExecutionJournal(gateway_url, internal_key)
                          if gateway_url else None)
     return create_app(internal_key, provider,
                       allowed_model=model, model_definition=model_definition,
+                      provider_config=provider_config, egress=egress,
+                      control_plane_url=gateway_url or None,
                       directive_registry=directive_registry, hook_registry=hook_registry,
                       tool_registry=tool_registry, approved_plugins=approved_plugins,
                       blob_store=blob_store, retriever=retriever,

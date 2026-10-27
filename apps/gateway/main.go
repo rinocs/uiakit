@@ -114,6 +114,12 @@ func main() {
 
 	handler := NewServer(s, c)
 	defer handler.telemetry.Shutdown(context.Background())
+	providerCtx, providerCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	providerErr := handler.applySavedProvider(providerCtx)
+	providerCancel()
+	if providerErr != nil {
+		log.Fatal("provider configuration initialization failed")
+	}
 	pluginCtx, pluginCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	pluginConfig, pluginErr := s.PluginConfiguration(pluginCtx)
 	if pluginErr == nil {

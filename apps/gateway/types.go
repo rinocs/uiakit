@@ -146,6 +146,12 @@ type AuditStore interface {
 	AuditEvents(context.Context, AuditFilter) ([]AuditEvent, error)
 }
 
+type ProviderStore interface {
+	ProviderConfiguration(context.Context) (ProviderConfiguration, error)
+	SaveProviderConfiguration(context.Context, int, ProviderConfiguration) (ProviderConfiguration, error)
+	AssistantsUsingModel(context.Context, string) (int, error)
+}
+
 type ApprovalStore interface {
 	Approvals(context.Context) ([]Approval, error)
 	Approval(context.Context, string) (Approval, error)
@@ -170,9 +176,11 @@ type Store interface {
 	DocumentStore
 	AgentRunStore
 	AuditStore
+	ProviderStore
 	ApprovalStore
 	ToolExecutionStore
 	Models(context.Context) ([]ModelDefinition, error)
+	SyncModels(context.Context, []ModelDefinition) error
 	Assistant(context.Context, string) (Assistant, error)
 	AssistantVersions(context.Context, string) ([]Assistant, error)
 	UpdateAssistant(context.Context, string, int, json.RawMessage) (Assistant, error)

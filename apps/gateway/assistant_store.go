@@ -29,17 +29,25 @@ func (s *PostgresStore) Models(ctx context.Context) ([]ModelDefinition, error) {
 	return out, rows.Err()
 }
 func (s *PostgresStore) SyncModels(ctx context.Context, models []ModelDefinition) error {
-	if len(models) != 1 {
+	if len(models) == 0 || len(models) > 50 {
 		return ErrInvalidConfig
 	}
-	if e := models[0].validate(); e != nil {
-		return e
+	seen := map[string]bool{}
+	for _, model := range models {
+		if e := model.validate(); e != nil {
+			return e
+		}
+		if seen[model.ID] {
+			return ErrInvalidConfig
+		}
+		seen[model.ID] = true
 	}
 	tx, e := s.pool.Begin(ctx)
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback(ctx)
+	ids := make([]string, 0, len(models))
 	for _, m := range models {
 		data, e := json.Marshal(m)
 		if e != nil {
@@ -48,8 +56,9 @@ func (s *PostgresStore) SyncModels(ctx context.Context, models []ModelDefinition
 		if _, e = tx.Exec(ctx, "INSERT INTO model_configurations(id,definition) VALUES($1,$2) ON CONFLICT(id) DO UPDATE SET definition=EXCLUDED.definition,updated_at=now()", m.ID, data); e != nil {
 			return e
 		}
+		ids = append(ids, m.ID)
 	}
-	if _, e = tx.Exec(ctx, "DELETE FROM model_configurations WHERE id<>$1", models[0].ID); e != nil {
+	if _, e = tx.Exec(ctx, "DELETE FROM model_configurations WHERE NOT (id = ANY($1::text[]))", ids); e != nil {
 		return e
 	}
 	return tx.Commit(ctx)

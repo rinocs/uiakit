@@ -1,22 +1,44 @@
 # Versioned assistants and model catalog
 ## Source of configurations
 
-The runtime describes its adapter via the protected `/internal/v1/models`
-with the service bearer. At startup the gateway imports the description into PostgreSQL
-before opening the public door; no model calls are necessary.
-`GET /v1/models` requires `models:read` and returns only id, provider, capability,
-max_output_tokens and context_window. URL, secret value and secret reference are not
-public. The current adapter exposes OpenAI-compatible chat/streaming; the others
-capabilities are absent until the respective adapter implements them.
+The runtime exposes the active provider and model definitions via the protected
+`/internal/v1/models` with the service bearer. At startup the gateway imports the
+catalog into PostgreSQL before opening the public door; provider changes made from
+the admin API are validated, persisted and applied to the runtime without restarting
+in-flight runs.
 
-The model is selected via MODEL_NAME, MODEL_BASE_URL and MODEL_API_KEY already
-existing. Only one active, usable backend per runtime is supported at this stage
-by multiple assistants. Capabilities are properties of the configured adapter, not one
-certification of the remote model: if it refuses streaming/tool, the error is
-normalized. Unknown context window is null, not a made up capability;
-token-aware budget and additional models belong to M3-07/M4-07.
-`configs/models/example.json` is format documentation, not an uploaded file
-implicitly; changing an example file does not change the active provider.
+`GET /v1/models` requires `models:read` and returns only id, provider, capabilities,
+max_output_tokens and context_window. Secret values and secret references are never
+public. The provider base URL is visible only to `providers:read` administrators.
+
+An administrator can configure one active provider kind, its base URL, a secret
+reference and max output tokens, plus the catalog of model identifiers used by
+assistants. `POST /v1/provider/models` asks the runtime to list the models exposed by
+the provider; it does not change the catalog. Secrets remain deployment references
+(`MODEL_API_KEY` or `PROVIDER_API_KEY_*`, with the corresponding `_FILE` variant);
+they are never stored by the gateway or returned in responses. The existing runtime
+egress policy still applies. Removing a model still used by an assistant is rejected.
+
+Environment variables `MODEL_NAME`, `MODEL_BASE_URL` and `MODEL_API_KEY` remain the
+bootstrap and fallback when no provider configuration has been saved. Capabilities are
+properties of the configured adapter, not a certification of the remote model: if it
+refuses streaming/tool, the error is normalized. Unknown context window is null, not a
+made up capability. `configs/models/example.json` is format documentation, not an
+uploaded file; changing an example file does not change the active provider.
+
+## Provider API
+
+- `GET /v1/provider` (`providers:read`): active provider kind, base URL, secret
+  reference, whether the reference resolves, max output tokens and the model
+  catalog. Returns ETag `"N"` (or `"0"` while the configuration is still
+  deployment-provided).
+- `PUT /v1/provider` (`providers:write`, `If-Match`): validates the desired
+  configuration through the runtime, persists a new revision, applies it and
+  resynchronizes the catalog. Removed models still used by an assistant are
+  rejected with `409 model_in_use`.
+- `POST /v1/provider/models` (`providers:write`): asks the runtime to query the
+  provider and returns the exposed model identifiers. It never changes the
+  active catalog.
 
 ## Assistant API
 

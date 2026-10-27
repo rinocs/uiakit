@@ -34,6 +34,18 @@ test('console pages have no serious accessibility violations and hardened browse
   await expect(page.getByRole('heading', { name: 'Assistenti' })).toBeVisible();
   expect(await seriousViolations(page)).toEqual([]);
 
+  await page.getByRole('link', { name: 'Credenziali', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Credenziali', exact: true, level: 1 })).toBeVisible();
+  expect(await seriousViolations(page)).toEqual([]);
+
+  await page.getByRole('link', { name: 'Registro audit', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Audit', level: 1 })).toBeVisible();
+  expect(await seriousViolations(page)).toEqual([]);
+
+  await page.getByRole('link', { name: 'Provider', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Provider', exact: true, level: 1 })).toBeVisible();
+  expect(await seriousViolations(page)).toEqual([]);
+
   const exposed = await page.evaluate(() => ({
     html: document.documentElement.outerHTML,
     local: JSON.stringify(localStorage),

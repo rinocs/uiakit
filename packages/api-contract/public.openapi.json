@@ -670,7 +670,7 @@
             }
           }
         ],
-        "description": "Events: agent.started → response.delta* → response.completed | agent.failed. A stream ending without a terminal event is incomplete. Retry the same content with the same key to retrieve persisted outcome; 409 means pending or conflicting request. No Last-Event-ID resume; replay returns the entire run."
+        "description": "Events: agent.started \u2192 response.delta* \u2192 response.completed | agent.failed. A stream ending without a terminal event is incomplete. Retry the same content with the same key to retrieve persisted outcome; 409 means pending or conflicting request. No Last-Event-ID resume; replay returns the entire run."
       }
     },
     "/v1/credentials": {
@@ -4472,6 +4472,285 @@
         },
         "description": "Requires conversations:write. The deletion is recorded as a non-sensitive tombstone and cascades to messages, runs and approvals. It does not affect documents or knowledge bases."
       }
+    },
+    "/v1/provider": {
+      "get": {
+        "operationId": "getProvider",
+        "description": "Current provider and model catalog. Secrets are never returned; only the deployment reference and whether it resolves.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderConfiguration"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Quoted revision, e.g. \"1\"; \"0\" when the configuration is still deployment-provided."
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Runtime unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateProvider",
+        "description": "Replaces the active provider configuration. Validated against the runtime and applied without restarting in-flight runs. Removed models still referenced by an assistant are rejected.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\"[0-9]+\"$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Applied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderConfiguration"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Quoted new revision."
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A removed model is still used by an assistant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Version conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid configuration or provider validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "If-Match required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Configuration saved but runtime apply or catalog sync is pending",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Runtime unavailable; nothing saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/provider/models": {
+      "post": {
+        "operationId": "discoverProviderModels",
+        "description": "Lists model identifiers exposed by a provider using the configured secret reference. Does not change the active catalog.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderDiscovery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderModelList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid configuration, egress denial or provider failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Runtime unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5167,10 +5446,13 @@
             "type": "string"
           },
           "provider": {
-            "const": "openai-compatible",
             "default": "openai-compatible",
             "title": "Provider",
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "openai-compatible",
+              "ollama"
+            ]
           },
           "capabilities": {
             "items": {
@@ -6434,6 +6716,184 @@
             ]
           },
           "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ProviderModel": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "capabilities",
+          "context_window"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "capabilities": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "tool_calling",
+                "structured_output"
+              ]
+            }
+          },
+          "context_window": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ProviderConfiguration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "managed",
+          "applied",
+          "provider",
+          "base_url",
+          "api_key_ref",
+          "api_key_configured",
+          "max_output_tokens",
+          "models"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "managed": {
+            "type": "boolean"
+          },
+          "applied": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "openai-compatible",
+              "ollama"
+            ]
+          },
+          "base_url": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "api_key_ref": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "api_key_configured": {
+            "type": "boolean"
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8192
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelDefinition"
+            }
+          }
+        }
+      },
+      "ProviderUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider",
+          "base_url",
+          "api_key_ref",
+          "max_output_tokens",
+          "models"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "openai-compatible",
+              "ollama"
+            ]
+          },
+          "base_url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "api_key_ref": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8192
+          },
+          "models": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/ProviderModel"
+            }
+          }
+        }
+      },
+      "ProviderDiscovery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider",
+          "base_url",
+          "api_key_ref"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "openai-compatible",
+              "ollama"
+            ]
+          },
+          "base_url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "api_key_ref": {
+            "type": "string",
+            "maxLength": 80
+          }
+        }
+      },
+      "ProviderModelList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "models"
+        ],
+        "properties": {
+          "models": {
             "type": "array",
             "items": {
               "type": "string"

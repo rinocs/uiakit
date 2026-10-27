@@ -23,7 +23,7 @@ const bootstrapPrincipal = "bootstrap-operator"
 var roleScopes = map[string][]string{
 	"reader":   {"agent-runs:read", "documents:read", "knowledge-bases:read", "tools:read", "models:read", "assistants:read", "conversations:read", "messages:read"},
 	"operator": {"agent-runs:read", "agent-runs:write", "approvals:read", "approvals:write", "documents:read", "documents:write", "knowledge-bases:read", "knowledge-bases:write", "tools:read", "tools:execute", "models:read", "assistants:read", "assistants:write", "conversations:read", "conversations:write", "messages:read", "messages:write", "widget-tokens:write"},
-	"admin":    {"agent-runs:read", "agent-runs:write", "approvals:read", "approvals:write", "audit:read", "documents:read", "documents:write", "knowledge-bases:read", "knowledge-bases:write", "plugins:read", "plugins:write", "tools:read", "tools:execute", "models:read", "assistants:read", "assistants:write", "conversations:read", "conversations:write", "messages:read", "messages:write", "widget-tokens:write", "credentials:read", "credentials:write"},
+	"admin":    {"agent-runs:read", "agent-runs:write", "approvals:read", "approvals:write", "audit:read", "documents:read", "documents:write", "knowledge-bases:read", "knowledge-bases:write", "plugins:read", "plugins:write", "tools:read", "tools:execute", "models:read", "assistants:read", "assistants:write", "conversations:read", "conversations:write", "messages:read", "messages:write", "widget-tokens:write", "credentials:read", "credentials:write", "providers:read", "providers:write"},
 	"widget":   {"messages:read", "messages:write"},
 }
 
