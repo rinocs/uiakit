@@ -632,6 +632,9 @@ func (s *server) runtimePlane(ctx context.Context) (providerRuntimePlane, error)
 }
 
 func (s *server) applyProviderPlane(ctx context.Context) (int64, error) {
+	s.providerApplyMu.Lock()
+	defer s.providerApplyMu.Unlock()
+
 	plane, err := s.runtimePlane(ctx)
 	if err != nil {
 		return 0, err
@@ -692,6 +695,10 @@ func (s *server) createProviderProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	saved, err := s.store.CreateProviderProfile(r.Context(), ProviderProfile{ID: body.ID, Name: input.Name,
 		Provider: input.Provider, BaseURL: input.BaseURL, MaxOutputTokens: input.MaxOutputTokens, Models: input.Models})
+	if errors.Is(err, ErrTooManyProfiles) {
+		problem(w, 422, "too_many_profiles")
+		return
+	}
 	if errors.Is(err, ErrConflict) {
 		problem(w, 409, "version_conflict")
 		return

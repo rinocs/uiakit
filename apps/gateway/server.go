@@ -39,17 +39,18 @@ type activeRun struct {
 }
 
 type server struct {
-	store          Store
-	config         Config
-	client         *http.Client
-	pluginMu       sync.Mutex
-	activeMu       sync.Mutex
-	active         map[string]*activeRun
-	globalLimiter  *rateLimiter
-	principalLimit *rateLimiter
-	widgetLimiter  *rateLimiter
-	handler        http.Handler
-	telemetry      *Telemetry
+	store           Store
+	config          Config
+	client          *http.Client
+	pluginMu        sync.Mutex
+	providerApplyMu sync.Mutex
+	activeMu        sync.Mutex
+	active          map[string]*activeRun
+	globalLimiter   *rateLimiter
+	principalLimit  *rateLimiter
+	widgetLimiter   *rateLimiter
+	handler         http.Handler
+	telemetry       *Telemetry
 }
 
 func NewServer(store Store, c Config) *server {

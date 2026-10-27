@@ -243,6 +243,13 @@ func (s *PostgresStore) CreateProviderProfile(ctx context.Context, profile Provi
 	if err != nil {
 		return profile, err
 	}
+	var profileCount int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM provider_profiles`).Scan(&profileCount); err != nil {
+		return profile, err
+	}
+	if profileCount >= 20 {
+		return profile, ErrTooManyProfiles
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO provider_profiles
 		(id, name, kind, base_url, max_output_tokens, revision, config_seq, updated_by)
 		VALUES ($1,$2,$3,$4,$5,1,$6,$7)`,

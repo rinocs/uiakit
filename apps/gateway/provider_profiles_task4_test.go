@@ -3,8 +3,42 @@ package main
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 )
+
+func TestConcurrentProfileWritesSerializePlaneApply(t *testing.T) {
+	store, server, fake := providerSetup(t)
+	body := func(id string) string {
+		return `{"id":"` + id + `","name":"` + id + `","provider":"ollama","base_url":"http://ollama:11434","max_output_tokens":256,"models":[{"id":"model"}]}`
+	}
+	responses := make(chan int, 2)
+	var wg sync.WaitGroup
+	for _, id := range []string{"first", "second"} {
+		id := id
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			responses <- providerRequest(server, "POST", "/v1/providers", body(id), "").Code
+		}()
+	}
+	wg.Wait()
+	close(responses)
+	for code := range responses {
+		if code != 200 {
+			t.Fatalf("concurrent create status=%d", code)
+		}
+	}
+	fake.mu.Lock()
+	planeRevision := fake.appliedPlane.Revision
+	fake.mu.Unlock()
+	store.providerMu.Lock()
+	applied := store.appliedRevision
+	store.providerMu.Unlock()
+	if planeRevision != 2 || applied != planeRevision {
+		t.Fatalf("plane revision=%d applied_revision=%d, want both 2", planeRevision, applied)
+	}
+}
 
 func TestProviderProfileCreatePushesPlaneRevision(t *testing.T) {
 	store, server, fake := providerSetup(t)

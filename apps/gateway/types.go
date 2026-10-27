@@ -11,6 +11,7 @@ import (
 
 var ErrNotFound = errors.New("not_found")
 var ErrConflict = errors.New("conflict")
+var ErrTooManyProfiles = errors.New("too_many_profiles")
 var ErrExportTooLarge = errors.New("export_too_large")
 
 type Message struct {
