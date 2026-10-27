@@ -16,39 +16,14 @@ import (
 type providerAuthStore struct {
 	authStore
 	providerMu            sync.Mutex
-	config                ProviderConfiguration
-	managed               bool
 	inUse                 map[string]int
 	synced                []ModelDefinition
-	saveCalls             int
 	validateCalls         int
 	applyCalls            int
 	profiles              map[string]ProviderProfile
 	globalRevision        int64
 	appliedRevision       int64
 	secretVersionOverride int
-}
-
-func (s *providerAuthStore) ProviderConfiguration(context.Context) (ProviderConfiguration, error) {
-	s.providerMu.Lock()
-	defer s.providerMu.Unlock()
-	if !s.managed {
-		return ProviderConfiguration{}, ErrNotFound
-	}
-	return s.config, nil
-}
-
-func (s *providerAuthStore) SaveProviderConfiguration(_ context.Context, expected int, config ProviderConfiguration) (ProviderConfiguration, error) {
-	s.providerMu.Lock()
-	defer s.providerMu.Unlock()
-	if s.managed && expected != s.config.Revision || !s.managed && expected != 0 {
-		return config, ErrConflict
-	}
-	config.Revision = expected + 1
-	s.config = config
-	s.managed = true
-	s.saveCalls++
-	return config, nil
 }
 
 func (s *providerAuthStore) AssistantsUsingModel(_ context.Context, model string) (int, error) {
@@ -397,20 +372,17 @@ func TestProviderUpdateValidatesAppliesAndSyncs(t *testing.T) {
 	if len(view.Models) != 1 || view.Models[0].ID != "test" {
 		t.Fatalf("unexpected models: %+v", view.Models)
 	}
-	if view.Models[0].Provider != "openai-compatible" {
-		t.Fatalf("provider = %s", view.Models[0].Provider)
-	}
 	store.providerMu.Lock()
-	saved, managed, synced := store.config, store.managed, store.synced
+	saved, synced := store.profiles["default"], store.synced
 	store.providerMu.Unlock()
-	if !managed || saved.Revision != 1 || saved.MaxOutputTokens != 1024 {
+	if saved.Revision != 1 || saved.MaxOutputTokens != 1024 || saved.SecretRef != "MODEL_API_KEY" {
 		t.Fatalf("saved = %+v", saved)
 	}
 	if len(synced) != 1 || synced[0].ID != "test" {
 		t.Fatalf("synced = %+v", synced)
 	}
-	if fake.appliedConfig.Revision != 1 {
-		t.Fatalf("runtime applied revision = %d", fake.appliedConfig.Revision)
+	if fake.appliedPlane.Revision != 1 || len(fake.appliedPlane.Profiles) != 1 {
+		t.Fatalf("runtime applied plane = %+v", fake.appliedPlane)
 	}
 }
 
@@ -423,19 +395,17 @@ func TestProviderUpdateRejectsRuntimeValidation(t *testing.T) {
 	}
 	store.providerMu.Lock()
 	defer store.providerMu.Unlock()
-	if store.managed || store.saveCalls != 0 {
+	if len(store.profiles) != 0 {
 		t.Fatalf("configuration should not be saved")
 	}
 }
 
 func TestProviderUpdateBlocksModelInUse(t *testing.T) {
 	store, server, _ := providerSetup(t)
-	store.managed = true
-	store.config = ProviderConfiguration{
-		Revision: 2, Provider: "openai-compatible", BaseURL: "http://provider/v1",
-		APIKeyRef: "MODEL_API_KEY", MaxOutputTokens: 1024,
-		Models: []ProviderModel{{ID: "old"}, {ID: "keep"}},
-	}
+	store.profiles["default"] = ProviderProfile{ID: "default", Name: "Default", Revision: 2,
+		ConfigSeq: 2, Provider: "openai-compatible", BaseURL: "http://provider/v1",
+		SecretRef: "MODEL_API_KEY", MaxOutputTokens: 1024,
+		Models: []ProviderModel{{ID: "old"}, {ID: "keep"}}}
 	store.inUse["old"] = 1
 	body := `{"provider":"openai-compatible","base_url":"http://provider/v1",` +
 		`"api_key_ref":"MODEL_API_KEY","max_output_tokens":1024,` +
@@ -448,12 +418,10 @@ func TestProviderUpdateBlocksModelInUse(t *testing.T) {
 
 func TestProviderUpdateConflictAndPending(t *testing.T) {
 	store, server, fake := providerSetup(t)
-	store.managed = true
-	store.config = ProviderConfiguration{
-		Revision: 3, Provider: "openai-compatible", BaseURL: "http://provider/v1",
-		APIKeyRef: "MODEL_API_KEY", MaxOutputTokens: 1024,
-		Models: []ProviderModel{{ID: "test"}},
-	}
+	store.profiles["default"] = ProviderProfile{ID: "default", Name: "Default", Revision: 3,
+		ConfigSeq: 3, Provider: "openai-compatible", BaseURL: "http://provider/v1",
+		SecretRef: "MODEL_API_KEY", MaxOutputTokens: 1024,
+		Models: []ProviderModel{{ID: "test"}}}
 	if response := providerRequest(server, "PUT", "/v1/provider", validProviderUpdate(), `"2"`); response.Code != 412 {
 		t.Fatalf("conflict status = %d", response.Code)
 	}
@@ -464,8 +432,8 @@ func TestProviderUpdateConflictAndPending(t *testing.T) {
 	}
 	store.providerMu.Lock()
 	defer store.providerMu.Unlock()
-	if store.config.Revision != 4 {
-		t.Fatalf("saved revision = %d", store.config.Revision)
+	if store.profiles["default"].Revision != 4 {
+		t.Fatalf("saved revision = %d", store.profiles["default"].Revision)
 	}
 }
 
@@ -477,6 +445,9 @@ func TestProviderDiscovery(t *testing.T) {
 	if response.Code != 200 || !strings.Contains(response.Body.String(), "model-b") {
 		t.Fatalf("status = %d body = %s", response.Code, response.Body.String())
 	}
+	if fake.discoveryRequest.Provider != "openai-compatible" || fake.discoveryRequest.BaseURL != "http://provider/v1" || fake.discoveryRequest.APIKeyRef != "MODEL_API_KEY" {
+		t.Fatalf("discovery request = %+v", fake.discoveryRequest)
+	}
 	invalid := providerRequest(server, "POST", "/v1/provider/models",
 		`{"provider":"openai-compatible","base_url":"http://provider/v1","api_key_ref":"INTERNAL_API_KEY"}`, "")
 	if invalid.Code != 422 {
@@ -485,20 +456,21 @@ func TestProviderDiscovery(t *testing.T) {
 }
 
 func TestInternalProviderDesiredAndApplied(t *testing.T) {
-	store, server, fake := providerSetup(t)
+	store, server, _ := providerSetup(t)
 	if response := providerInternalRequest(server, "GET", "/internal/v1/provider/desired", ""); response.Code != 404 {
 		t.Fatalf("unmanaged desired status = %d", response.Code)
 	}
-	store.managed = true
-	store.config = ProviderConfiguration{
-		Revision: 5, Provider: "openai-compatible", BaseURL: "http://provider/v1",
-		APIKeyRef: "MODEL_API_KEY", MaxOutputTokens: 1024,
-		Models: []ProviderModel{{ID: "test"}},
-	}
-	fake.models = providerDefinitions(store.config)
+	store.profiles["default"] = ProviderProfile{ID: "default", Name: "Default", Revision: 1,
+		ConfigSeq: 5, Provider: "openai-compatible", BaseURL: "http://provider/v1",
+		SecretRef: "MODEL_API_KEY", MaxOutputTokens: 1024,
+		Models: []ProviderModel{{ID: "test"}}}
 	response := providerInternalRequest(server, "GET", "/internal/v1/provider/desired", "")
 	if response.Code != 200 {
 		t.Fatalf("desired status = %d", response.Code)
+	}
+	var plane providerRuntimePlane
+	if err := json.Unmarshal(response.Body.Bytes(), &plane); err != nil || len(plane.Profiles) != 1 || plane.Profiles[0].ID != "default" {
+		t.Fatalf("desired plane = %+v err=%v", plane, err)
 	}
 	final := providerInternalRequest(server, "POST", "/internal/v1/provider/applied", `{"revision":5}`)
 	if final.Code != 204 {
@@ -506,7 +478,57 @@ func TestInternalProviderDesiredAndApplied(t *testing.T) {
 	}
 	store.providerMu.Lock()
 	defer store.providerMu.Unlock()
-	if len(store.synced) != 1 || store.synced[0].ID != "test" {
-		t.Fatalf("synced = %+v", store.synced)
+	if store.appliedRevision != 5 || len(store.synced) != 1 || store.synced[0].ID != "test" {
+		t.Fatalf("applied=%d synced=%+v", store.appliedRevision, store.synced)
+	}
+}
+
+func TestLegacyProviderSchemaAndETagUsesDefaultProfileRevision(t *testing.T) {
+	store, server, _ := providerSetup(t)
+	store.profiles["default"] = ProviderProfile{ID: "default", Name: "Default", Revision: 7,
+		ConfigSeq: 11, Provider: "openai-compatible", BaseURL: "http://provider/v1",
+		SecretRef: "MODEL_API_KEY", MaxOutputTokens: 1024,
+		Models: []ProviderModel{{ID: "test"}}}
+	response := providerRequest(server, "GET", "/v1/provider", "", "")
+	if response.Code != 200 {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(response.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"revision", "managed", "applied", "provider", "base_url", "api_key_ref", "api_key_configured", "max_output_tokens", "models"}
+	if len(raw) != len(want) {
+		t.Fatalf("keys = %v", raw)
+	}
+	for _, key := range want {
+		if _, ok := raw[key]; !ok {
+			t.Fatalf("missing key %q", key)
+		}
+	}
+	if response.Header().Get("ETag") != `"7"` {
+		t.Fatalf("etag = %q", response.Header().Get("ETag"))
+	}
+}
+
+func TestProvidersReturnsUnmanagedSyntheticDefault(t *testing.T) {
+	_, server, fake := providerSetup(t)
+	fake.state.Provider = "ollama"
+	fake.state.BaseURL = "http://ollama:11434"
+	fake.state.APIKeyRef = ""
+	fake.state.APIKeyConfigured = false
+	response := providerRequest(server, "GET", "/v1/providers", "", "")
+	if response.Code != 200 {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	var list ProviderProfileList
+	if err := json.Unmarshal(response.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Profiles) != 1 || list.Profiles[0].ID != "default" || list.Profiles[0].Managed {
+		t.Fatalf("profiles = %+v", list.Profiles)
+	}
+	if list.Profiles[0].Provider != "ollama" || list.Profiles[0].SecretConfigured {
+		t.Fatalf("synthetic default = %+v", list.Profiles[0])
 	}
 }

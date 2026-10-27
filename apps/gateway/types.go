@@ -163,8 +163,6 @@ type ProviderSecret struct {
 }
 
 type ProviderStore interface {
-	ProviderConfiguration(context.Context) (ProviderConfiguration, error)
-	SaveProviderConfiguration(context.Context, int, ProviderConfiguration) (ProviderConfiguration, error)
 	AssistantsUsingModel(context.Context, string) (int, error)
 	ProviderProfiles(context.Context) ([]ProviderProfile, error)
 	ProviderProfile(context.Context, string) (ProviderProfile, error)

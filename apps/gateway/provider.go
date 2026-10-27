@@ -266,22 +266,12 @@ func (s *server) syncRuntimeModels(ctx context.Context) error {
 }
 
 func (s *server) applySavedProvider(ctx context.Context) error {
-	config, err := s.store.ProviderConfiguration(ctx)
-	if errors.Is(err, ErrNotFound) {
-		return nil
-	}
-	if err != nil {
+	profiles, err := s.store.ProviderProfiles(ctx)
+	if err != nil || len(profiles) == 0 {
 		return err
 	}
-	status, data, err := s.runtimeProviderRequest(ctx, "POST", "/internal/v1/provider/apply",
-		runtimeProviderConfig(config))
-	if err != nil {
-		return err
-	}
-	if status != 200 {
-		return errors.New(runtimeErrorCode(data))
-	}
-	return nil
+	_, err = s.applyProviderPlane(ctx)
+	return err
 }
 
 func providerExpected(w http.ResponseWriter, r *http.Request) (int, bool) {
@@ -323,29 +313,62 @@ func removedModelInUse(ctx context.Context, s *server, current, next []ProviderM
 	return "", nil
 }
 
+func legacyProviderConfiguration(profile ProviderProfile) ProviderConfiguration {
+	return ProviderConfiguration{
+		Revision: profile.Revision, Provider: profile.Provider, BaseURL: profile.BaseURL,
+		APIKeyRef: profile.SecretRef, MaxOutputTokens: profile.MaxOutputTokens, Models: profile.Models,
+	}
+}
+
+func (s *server) legacyProviderState(ctx context.Context) (*runtimeProviderState, error) {
+	state, err := fetchRuntimeProviderState(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	return &state, nil
+}
+
 func (s *server) provider(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	config, err := s.store.ProviderConfiguration(ctx)
-	if errors.Is(err, ErrNotFound) {
-		state, err := fetchRuntimeProviderState(ctx, s)
-		if err != nil {
-			problem(w, 503, "runtime_unavailable")
-			return
-		}
-		w.Header().Set("ETag", etag(0))
-		respond(w, 200, providerView(ProviderConfiguration{}, &state, false))
-		return
-	}
+	profiles, err := s.store.ProviderProfiles(ctx)
 	if err != nil {
 		problem(w, 500, "store_error")
 		return
 	}
-	var state *runtimeProviderState
-	if current, err := fetchRuntimeProviderState(ctx, s); err == nil {
-		state = &current
+	var defaultProfile *ProviderProfile
+	for i := range profiles {
+		if profiles[i].ID == "default" {
+			defaultProfile = &profiles[i]
+			break
+		}
 	}
-	w.Header().Set("ETag", etag(config.Revision))
-	respond(w, 200, providerView(config, state, true))
+	if defaultProfile == nil {
+		state, stateErr := s.legacyProviderState(ctx)
+		if stateErr != nil {
+			problem(w, 503, "runtime_unavailable")
+			return
+		}
+		w.Header().Set("ETag", etag(0))
+		respond(w, 200, providerView(ProviderConfiguration{}, state, false))
+		return
+	}
+	config := legacyProviderConfiguration(*defaultProfile)
+	state, _ := s.legacyProviderState(ctx)
+	if state == nil {
+		state = &runtimeProviderState{}
+	}
+	applied, err := s.store.ProviderAppliedRevision(ctx)
+	if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	view := providerView(config, state, true)
+	view.Applied = applied >= defaultProfile.ConfigSeq
+	if state.Revision == 0 {
+		view.APIKeyConfigured = defaultProfile.SecretRef != "" || defaultProfile.SecretCipher != nil
+	}
+	w.Header().Set("ETag", etag(defaultProfile.Revision))
+	respond(w, 200, view)
 }
 
 func (s *server) updateProvider(w http.ResponseWriter, r *http.Request) {
@@ -366,11 +389,32 @@ func (s *server) updateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	current, err := s.store.ProviderConfiguration(ctx)
+	profiles, err := s.store.ProviderProfiles(ctx)
+	if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	var current *ProviderProfile
+	for i := range profiles {
+		if profiles[i].ID == "default" {
+			current = &profiles[i]
+			break
+		}
+	}
 	var currentModels []ProviderModel
-	switch {
-	case errors.Is(err, ErrNotFound):
-		state, stateErr := fetchRuntimeProviderState(ctx, s)
+	if current != nil {
+		currentModels = current.Models
+		expectedRevision := current.Revision
+		if expected != expectedRevision {
+			problem(w, 412, "version_conflict")
+			return
+		}
+	} else {
+		if expected != 0 {
+			problem(w, 412, "version_conflict")
+			return
+		}
+		state, stateErr := s.legacyProviderState(ctx)
 		if stateErr != nil {
 			problem(w, 503, "runtime_unavailable")
 			return
@@ -378,11 +422,6 @@ func (s *server) updateProvider(w http.ResponseWriter, r *http.Request) {
 		for _, model := range state.Models {
 			currentModels = append(currentModels, ProviderModel{ID: model.ID})
 		}
-	case err != nil:
-		problem(w, 500, "store_error")
-		return
-	default:
-		currentModels = current.Models
 	}
 	if modelID, err := removedModelInUse(ctx, s, currentModels, next.Models); err != nil {
 		problem(w, 500, "store_error")
@@ -392,8 +431,7 @@ func (s *server) updateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	next.Revision = expected + 1
-	status, data, err := s.runtimeProviderRequest(ctx, "POST", "/internal/v1/provider/validate",
-		runtimeProviderConfig(next))
+	status, data, err := s.runtimeProviderRequest(ctx, "POST", "/internal/v1/provider/validate", runtimeProviderConfig(next))
 	if err != nil {
 		problem(w, 503, "runtime_unavailable")
 		return
@@ -406,7 +444,14 @@ func (s *server) updateProvider(w http.ResponseWriter, r *http.Request) {
 		problem(w, 503, "runtime_unavailable")
 		return
 	}
-	saved, err := s.store.SaveProviderConfiguration(ctx, expected, next)
+	profile := ProviderProfile{ID: "default", Name: "Default", Provider: next.Provider, BaseURL: next.BaseURL,
+		SecretRef: next.APIKeyRef, MaxOutputTokens: next.MaxOutputTokens, Models: next.Models}
+	var saved ProviderProfile
+	if current == nil {
+		saved, err = s.store.CreateProviderProfile(ctx, profile)
+	} else {
+		saved, err = s.store.UpdateProviderProfile(ctx, "default", expected, profile)
+	}
 	if errors.Is(err, ErrConflict) {
 		problem(w, 412, "version_conflict")
 		return
@@ -415,23 +460,33 @@ func (s *server) updateProvider(w http.ResponseWriter, r *http.Request) {
 		problem(w, 500, "store_error")
 		return
 	}
-	status, data, err = s.runtimeProviderRequest(ctx, "POST", "/internal/v1/provider/apply",
-		runtimeProviderConfig(saved))
-	if err != nil || status != 200 {
+	// The legacy payload exposes only environment references. Keep the profile's
+	// credential source aligned with that reference before applying the plane.
+	if saved.SecretRef != next.APIKeyRef || saved.SecretCipher != nil {
+		saved, err = s.store.SetProviderSecret(ctx, "default", ProviderSecret{Source: "env", Ref: next.APIKeyRef})
+		if err != nil {
+			problem(w, 500, "store_error")
+			return
+		}
+	}
+	applied, err := s.applyProviderPlane(ctx)
+	if errors.Is(err, errSecretUnreadable) {
+		problem(w, 502, "secret_unreadable")
+		return
+	}
+	if err != nil {
 		problem(w, 502, "provider_pending")
 		return
 	}
-	var state runtimeProviderState
-	if err := json.Unmarshal(data, &state); err != nil {
+	state, err := s.legacyProviderState(ctx)
+	if err != nil {
 		problem(w, 502, "provider_pending")
 		return
 	}
-	if err := s.syncRuntimeModels(ctx); err != nil {
-		problem(w, 502, "provider_pending")
-		return
-	}
+	view := providerView(legacyProviderConfiguration(saved), state, true)
+	view.Applied = applied >= saved.ConfigSeq
 	w.Header().Set("ETag", etag(saved.Revision))
-	respond(w, 200, providerView(saved, &state, true))
+	respond(w, 200, view)
 }
 
 func (s *server) discoverProviderModels(w http.ResponseWriter, r *http.Request) {
@@ -668,10 +723,39 @@ func (s *server) applyProviderPlane(ctx context.Context) (int64, error) {
 	return plane.Revision, nil
 }
 
+func syntheticDefaultProfile(state runtimeProviderState) ProviderProfileView {
+	models := make([]ProviderModel, 0, len(state.Models))
+	for _, model := range state.Models {
+		capabilities := make([]string, 0, len(model.Capabilities))
+		for _, capability := range model.Capabilities {
+			if capability != "chat" && capability != "streaming" {
+				capabilities = append(capabilities, capability)
+			}
+		}
+		models = append(models, ProviderModel{ID: model.ID, Capabilities: capabilities, ContextWindow: model.ContextWindow})
+	}
+	source := "none"
+	if state.APIKeyRef != "" {
+		source = "env"
+	}
+	return ProviderProfileView{ID: "default", Provider: state.Provider, BaseURL: state.BaseURL,
+		SecretSource: source, SecretConfigured: state.APIKeyConfigured, SecretReadable: true,
+		MaxOutputTokens: state.MaxOutputTokens, Models: models, Managed: false}
+}
+
 func (s *server) providers(w http.ResponseWriter, r *http.Request) {
 	profiles, err := s.store.ProviderProfiles(r.Context())
 	if err != nil {
 		problem(w, 500, "store_error")
+		return
+	}
+	if len(profiles) == 0 {
+		state, stateErr := s.legacyProviderState(r.Context())
+		if stateErr != nil {
+			problem(w, 503, "runtime_unavailable")
+			return
+		}
+		respond(w, http.StatusOK, ProviderProfileList{Profiles: []ProviderProfileView{syntheticDefaultProfile(*state)}})
 		return
 	}
 	applied, err := s.store.ProviderAppliedRevision(r.Context())
@@ -1053,43 +1137,42 @@ func (s *server) internalProviderRoutes(r chi.Router) {
 	r.Route("/internal/v1/provider", func(r chi.Router) {
 		r.Use(s.requireInternal)
 		r.Get("/desired", func(w http.ResponseWriter, r *http.Request) {
-			config, err := s.store.ProviderConfiguration(r.Context())
+			plane, err := s.runtimePlane(r.Context())
 			if errors.Is(err, ErrNotFound) {
-				problem(w, 404, "not_configured")
+				problem(w, http.StatusNotFound, "not_configured")
+				return
+			}
+			if errors.Is(err, errSecretUnreadable) {
+				problem(w, http.StatusServiceUnavailable, "secret_unreadable")
 				return
 			}
 			if err != nil {
-				problem(w, 503, "store_error")
+				problem(w, http.StatusServiceUnavailable, "store_error")
 				return
 			}
-			respond(w, 200, runtimeProviderConfig(config))
+			if len(plane.Profiles) == 0 {
+				problem(w, http.StatusNotFound, "not_configured")
+				return
+			}
+			respond(w, http.StatusOK, plane)
 		})
 		r.Post("/applied", func(w http.ResponseWriter, r *http.Request) {
 			var body struct {
-				Revision int `json:"revision"`
+				Revision int64 `json:"revision"`
 			}
 			if !decode(w, r, &body) {
 				return
 			}
 			if body.Revision < 1 {
-				problem(w, 422, "invalid_configuration")
+				problem(w, http.StatusUnprocessableEntity, "invalid_configuration")
 				return
 			}
-			config, err := s.store.ProviderConfiguration(r.Context())
-			if errors.Is(err, ErrNotFound) {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			if err != nil {
-				problem(w, 503, "store_error")
-				return
-			}
-			if config.Revision != body.Revision {
-				w.WriteHeader(http.StatusNoContent)
+			if err := s.store.MarkProviderApplied(r.Context(), body.Revision); err != nil {
+				problem(w, http.StatusServiceUnavailable, "store_error")
 				return
 			}
 			if err := s.syncRuntimeModels(r.Context()); err != nil {
-				problem(w, 503, "catalog_unavailable")
+				problem(w, http.StatusServiceUnavailable, "catalog_unavailable")
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)

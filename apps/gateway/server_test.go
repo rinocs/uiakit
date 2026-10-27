@@ -31,8 +31,6 @@ type memoryStore struct {
 	widgetTokens    map[string]WidgetToken
 	widgetDigests   map[string]string
 	providerMu      sync.Mutex
-	providerConfig  ProviderConfiguration
-	providerManaged bool
 	providerInUse   map[string]int
 }
 
@@ -376,30 +374,6 @@ func (*memoryStore) Models(context.Context) ([]ModelDefinition, error) {
 }
 
 func (*memoryStore) SyncModels(context.Context, []ModelDefinition) error { return nil }
-
-func (s *memoryStore) ProviderConfiguration(context.Context) (ProviderConfiguration, error) {
-	s.providerMu.Lock()
-	defer s.providerMu.Unlock()
-	if !s.providerManaged {
-		return ProviderConfiguration{}, ErrNotFound
-	}
-	return s.providerConfig, nil
-}
-
-func (s *memoryStore) SaveProviderConfiguration(_ context.Context, expected int, config ProviderConfiguration) (ProviderConfiguration, error) {
-	s.providerMu.Lock()
-	defer s.providerMu.Unlock()
-	if s.providerManaged && expected != s.providerConfig.Revision {
-		return config, ErrConflict
-	}
-	if !s.providerManaged && expected != 0 {
-		return config, ErrConflict
-	}
-	config.Revision = expected + 1
-	s.providerConfig = config
-	s.providerManaged = true
-	return config, nil
-}
 
 func (s *memoryStore) AssistantsUsingModel(_ context.Context, model string) (int, error) {
 	s.providerMu.Lock()
