@@ -4,7 +4,8 @@ import httpx
 
 from uai_runtime.app import create_app
 from uai_runtime.egress import EgressPolicy
-from uai_runtime.provider_control import ProviderConfig, ProviderRegistry, make_active
+from uai_runtime.provider_control import (ProviderConfig, ProviderDiscoveryConfig,
+                                            ProviderRegistry, discover_models, make_active)
 
 
 class Provider:
@@ -126,6 +127,31 @@ def test_discovery_lists_openai_and_ollama_models(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {'models': ['model-a', 'model-b']}
     assert seen == ['http://provider/v1/models']
+
+
+def test_discovery_prefers_inline_api_key():
+    seen = []
+
+    def handler(request):
+        seen.append(request.headers.get('authorization'))
+        return httpx.Response(200, json={'data': []})
+
+    config = ProviderDiscoveryConfig(provider='openai-compatible', base_url='http://provider/v1',
+                                     api_key='sk-inline', api_key_ref='MODEL_API_KEY')
+    assert asyncio.run(discover_models(config, None, transport=httpx.MockTransport(handler))) == []
+    assert seen == ['Bearer sk-inline']
+
+
+def test_discovery_rejects_inline_api_key_and_ref_together():
+    app = create_app('internal-secret', Provider())
+    response = send(app, '/internal/v1/provider/models', {
+        'provider': 'openai-compatible',
+        'base_url': 'http://provider/v1',
+        'api_key': 'sk-inline',
+        'api_key_ref': 'MODEL_API_KEY',
+    })
+    assert response.status_code == 422
+    assert 'invalid_configuration' in response.text
 
 
 def test_discovery_lists_ollama_tags_and_hides_failures(monkeypatch):

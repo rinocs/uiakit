@@ -57,7 +57,19 @@ type ProviderUpdate struct {
 type ProviderDiscovery struct {
 	Provider  string `json:"provider"`
 	BaseURL   string `json:"base_url"`
+	APIKey    string `json:"api_key"`
 	APIKeyRef string `json:"api_key_ref"`
+}
+
+type ProviderSecretInput struct {
+	Source string `json:"source"`
+	Value  string `json:"value"`
+	Ref    string `json:"ref"`
+}
+
+type ProviderSecretView struct {
+	SecretSource     string `json:"secret_source"`
+	SecretConfigured bool   `json:"secret_configured"`
 }
 
 type ProviderModelList struct {
@@ -724,6 +736,185 @@ func (s *server) createProviderProfile(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, s.providerProfileView(saved, applied))
 }
 
+func providerSecretView(profile ProviderProfile) ProviderSecretView {
+	view := providerProfileView(profile, 0)
+	return ProviderSecretView{SecretSource: view.SecretSource, SecretConfigured: view.SecretConfigured}
+}
+
+func providerSecretApplyError(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, errSecretKeyUnavailable):
+		problem(w, http.StatusServiceUnavailable, "secret_key_unavailable")
+	case errors.Is(err, errSecretUnreadable):
+		problem(w, http.StatusBadGateway, "secret_unreadable")
+	case errors.Is(err, errSecretValueInvalid):
+		problem(w, http.StatusUnprocessableEntity, "secret_value_invalid")
+	default:
+		return false
+	}
+	return true
+}
+
+func (s *server) setProviderCredential(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+	profile, err := s.store.ProviderProfile(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		problem(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if err != nil {
+		problem(w, http.StatusInternalServerError, "store_error")
+		return
+	}
+	var input ProviderSecretInput
+	if !decode(w, r, &input) {
+		return
+	}
+	if profile.Provider == "ollama" && (input.Value != "" || input.Ref != "") {
+		problem(w, http.StatusUnprocessableEntity, "api_key_ref_not_supported")
+		return
+	}
+	if input.Value != "" && input.Ref != "" {
+		problem(w, http.StatusUnprocessableEntity, "invalid_configuration")
+		return
+	}
+	var secret ProviderSecret
+	switch input.Source {
+	case "stored":
+		if input.Ref != "" {
+			problem(w, http.StatusUnprocessableEntity, "invalid_configuration")
+			return
+		}
+		cipher, nonce, sealErr := s.config.SecretKey.seal(profile.ID, input.Value)
+		if sealErr != nil {
+			if providerSecretApplyError(w, sealErr) {
+				return
+			}
+			problem(w, http.StatusUnprocessableEntity, "secret_value_invalid")
+			return
+		}
+		secret = ProviderSecret{Source: "stored", Cipher: cipher, Nonce: nonce, KeyVersion: providerSecretKeyVersion}
+	case "env":
+		if input.Value != "" || input.Ref == "" {
+			problem(w, http.StatusUnprocessableEntity, "invalid_configuration")
+			return
+		}
+		if !validProviderSecretRef(input.Ref) {
+			problem(w, http.StatusUnprocessableEntity, "invalid_api_key_ref")
+			return
+		}
+		secret = ProviderSecret{Source: "env", Ref: input.Ref}
+	default:
+		problem(w, http.StatusUnprocessableEntity, "invalid_configuration")
+		return
+	}
+	saved, err := s.store.SetProviderSecret(ctx, id, secret)
+	if errors.Is(err, ErrNotFound) {
+		problem(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if err != nil {
+		problem(w, http.StatusInternalServerError, "store_error")
+		return
+	}
+	if _, err := s.applyProviderPlane(ctx); err != nil {
+		if providerSecretApplyError(w, err) {
+			return
+		}
+		if err.Error() == "provider_pending" {
+			problem(w, http.StatusBadGateway, "provider_pending")
+			return
+		}
+		problem(w, http.StatusInternalServerError, "store_error")
+		return
+	}
+	respond(w, http.StatusOK, providerSecretView(saved))
+}
+
+func (s *server) clearProviderCredential(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+	if _, err := s.store.ProviderProfile(ctx, id); errors.Is(err, ErrNotFound) {
+		problem(w, http.StatusNotFound, "not_found")
+		return
+	} else if err != nil {
+		problem(w, http.StatusInternalServerError, "store_error")
+		return
+	}
+	saved, err := s.store.SetProviderSecret(ctx, id, ProviderSecret{Source: "none"})
+	if errors.Is(err, ErrNotFound) {
+		problem(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if err != nil {
+		problem(w, http.StatusInternalServerError, "store_error")
+		return
+	}
+	if _, err := s.applyProviderPlane(ctx); err != nil {
+		if providerSecretApplyError(w, err) {
+			return
+		}
+		if err.Error() == "provider_pending" {
+			problem(w, http.StatusBadGateway, "provider_pending")
+			return
+		}
+		problem(w, http.StatusInternalServerError, "store_error")
+		return
+	}
+	respond(w, http.StatusOK, providerSecretView(saved))
+}
+
+func (s *server) discoverProfileModels(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+	profile, err := s.store.ProviderProfile(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		problem(w, http.StatusNotFound, "not_found")
+		return
+	}
+	if err != nil {
+		problem(w, http.StatusInternalServerError, "store_error")
+		return
+	}
+	body := ProviderDiscovery{Provider: profile.Provider, BaseURL: profile.BaseURL, APIKeyRef: profile.SecretRef}
+	if profile.SecretCipher != nil {
+		if s.config.SecretKey == nil {
+			problem(w, http.StatusServiceUnavailable, "secret_key_unavailable")
+			return
+		}
+		value, openErr := s.config.SecretKey.open(profile.ID, profile.SecretCipher, profile.SecretNonce, profile.SecretKeyVersion)
+		if openErr != nil {
+			problem(w, http.StatusBadGateway, "secret_unreadable")
+			return
+		}
+		body.APIKey = value
+		body.APIKeyRef = ""
+	}
+	status, data, err := s.runtimeProviderRequest(ctx, http.MethodPost, "/internal/v1/provider/models", body)
+	if err != nil {
+		problem(w, http.StatusServiceUnavailable, "runtime_unavailable")
+		return
+	}
+	if status == http.StatusUnprocessableEntity {
+		problem(w, http.StatusUnprocessableEntity, runtimeErrorCode(data))
+		return
+	}
+	if status != http.StatusOK {
+		problem(w, http.StatusServiceUnavailable, "runtime_unavailable")
+		return
+	}
+	var found ProviderModelList
+	if err := json.Unmarshal(data, &found); err != nil {
+		problem(w, http.StatusBadGateway, "runtime_unavailable")
+		return
+	}
+	if found.Models == nil {
+		found.Models = []string{}
+	}
+	respond(w, http.StatusOK, found)
+}
+
 func (s *server) providerProfile(w http.ResponseWriter, r *http.Request) {
 	profile, err := s.store.ProviderProfile(r.Context(), chi.URLParam(r, "id"))
 	if errors.Is(err, ErrNotFound) {
@@ -853,6 +1044,9 @@ func (s *server) providerRoutes(r chi.Router) {
 	r.With(requireScope("providers:read")).Get("/v1/providers/{id}", s.providerProfile)
 	r.With(requireScope("providers:write")).Put("/v1/providers/{id}", s.updateProviderProfile)
 	r.With(requireScope("providers:write")).Delete("/v1/providers/{id}", s.deleteProviderProfile)
+	r.With(requireScope("providers:write")).Put("/v1/providers/{id}/secret", s.setProviderCredential)
+	r.With(requireScope("providers:write")).Delete("/v1/providers/{id}/secret", s.clearProviderCredential)
+	r.With(requireScope("providers:write")).Post("/v1/providers/{id}/models/discovery", s.discoverProfileModels)
 }
 
 func (s *server) internalProviderRoutes(r chi.Router) {

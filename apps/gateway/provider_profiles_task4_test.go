@@ -231,6 +231,113 @@ func TestRuntimePlaneDecryptsStoredSecretOnlyInternally(t *testing.T) {
 	}
 }
 
+func providerSecretProfile() ProviderProfile {
+	return ProviderProfile{ID: "openai", Name: "OpenAI", Provider: "openai-compatible", BaseURL: "https://api.example.com/v1",
+		MaxOutputTokens: 512, Models: []ProviderModel{{ID: "alpha"}}, ConfigSeq: 1, Revision: 1}
+}
+
+func TestProviderSecretStoredRoundTrip(t *testing.T) {
+	store, server, _ := providerSetup(t)
+	store.profiles["openai"] = providerSecretProfile()
+	response := providerRequest(server, "PUT", "/v1/providers/openai/secret", `{"source":"stored","value":"sk-live-123"}`, "")
+	if response.Code != 200 || !strings.Contains(response.Body.String(), `"secret_source":"stored"`) || !strings.Contains(response.Body.String(), `"secret_configured":true`) {
+		t.Fatalf("status = %d body = %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "sk-live-123") {
+		t.Fatalf("response leaked secret: %s", response.Body.String())
+	}
+	store.providerMu.Lock()
+	profile := store.profiles["openai"]
+	store.providerMu.Unlock()
+	if len(profile.SecretCipher) == 0 || profile.SecretRef != "" {
+		t.Fatalf("stored profile = %+v", profile)
+	}
+}
+
+func TestProviderSecretRequiresKey(t *testing.T) {
+	store, server, _ := providerSetup(t)
+	store.profiles["openai"] = providerSecretProfile()
+	server.config.SecretKey = nil
+	stored := providerRequest(server, "PUT", "/v1/providers/openai/secret", `{"source":"stored","value":"sk-live-123"}`, "")
+	if stored.Code != 503 || !strings.Contains(stored.Body.String(), "secret_key_unavailable") {
+		t.Fatalf("stored status = %d body = %s", stored.Code, stored.Body.String())
+	}
+	env := providerRequest(server, "PUT", "/v1/providers/openai/secret", `{"source":"env","ref":"MODEL_API_KEY"}`, "")
+	if env.Code != 200 || !strings.Contains(env.Body.String(), `"secret_source":"env"`) {
+		t.Fatalf("env status = %d body = %s", env.Code, env.Body.String())
+	}
+}
+
+func TestProviderSecretValidation(t *testing.T) {
+	store, server, _ := providerSetup(t)
+	store.profiles["openai"] = providerSecretProfile()
+	for _, value := range []string{"", "line\nvalue", strings.Repeat("x", 4097)} {
+		body, _ := json.Marshal(ProviderSecretInput{Source: "stored", Value: value})
+		response := providerRequest(server, "PUT", "/v1/providers/openai/secret", string(body), "")
+		if response.Code != 422 || !strings.Contains(response.Body.String(), "secret_value_invalid") {
+			t.Fatalf("value length=%d status=%d body=%s", len(value), response.Code, response.Body.String())
+		}
+	}
+	invalidRef := providerRequest(server, "PUT", "/v1/providers/openai/secret", `{"source":"env","ref":"INTERNAL_API_KEY"}`, "")
+	if invalidRef.Code != 422 || !strings.Contains(invalidRef.Body.String(), "invalid_api_key_ref") {
+		t.Fatalf("invalid ref status = %d body = %s", invalidRef.Code, invalidRef.Body.String())
+	}
+	store.profiles["local"] = ProviderProfile{ID: "local", Provider: "ollama", BaseURL: "http://ollama:11434", Models: []ProviderModel{{ID: "model"}}}
+	ollama := providerRequest(server, "PUT", "/v1/providers/local/secret", `{"source":"stored","value":"sk-live-123"}`, "")
+	if ollama.Code != 422 || !strings.Contains(ollama.Body.String(), "api_key_ref_not_supported") {
+		t.Fatalf("ollama status = %d body = %s", ollama.Code, ollama.Body.String())
+	}
+	both := providerRequest(server, "PUT", "/v1/providers/openai/secret", `{"source":"stored","value":"sk-live-123","ref":"MODEL_API_KEY"}`, "")
+	if both.Code != 422 || !strings.Contains(both.Body.String(), "invalid_configuration") {
+		t.Fatalf("both status = %d body = %s", both.Code, both.Body.String())
+	}
+}
+
+func TestProviderSecretUnreadableVersion(t *testing.T) {
+	store, server, _ := providerSetup(t)
+	store.profiles["openai"] = providerSecretProfile()
+	store.secretVersionOverride = 2
+	response := providerRequest(server, "PUT", "/v1/providers/openai/secret", `{"source":"stored","value":"sk-live-123"}`, "")
+	if response.Code != 502 || !strings.Contains(response.Body.String(), "secret_unreadable") {
+		t.Fatalf("status = %d body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestProviderDiscoveryUsesStoredSecret(t *testing.T) {
+	store, server, fake := providerSetup(t)
+	store.profiles["openai"] = providerSecretProfile()
+	cipher, nonce, err := server.config.SecretKey.seal("openai", "sk-live-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := store.profiles["openai"]
+	profile.SecretCipher = cipher
+	profile.SecretNonce = nonce
+	profile.SecretKeyVersion = providerSecretKeyVersion
+	store.profiles["openai"] = profile
+	response := providerRequest(server, "POST", "/v1/providers/openai/models/discovery", `{}`, "")
+	if response.Code != 200 {
+		t.Fatalf("status = %d body = %s", response.Code, response.Body.String())
+	}
+	if fake.discoveryRequest.APIKey != "sk-live-123" || fake.discoveryRequest.APIKeyRef != "" {
+		t.Fatalf("discovery request = %+v", fake.discoveryRequest)
+	}
+}
+
+func TestProviderDiscoveryEnvRef(t *testing.T) {
+	store, server, fake := providerSetup(t)
+	profile := providerSecretProfile()
+	profile.SecretRef = "PROVIDER_API_KEY_TEAM"
+	store.profiles["openai"] = profile
+	response := providerRequest(server, "POST", "/v1/providers/openai/models/discovery", `{}`, "")
+	if response.Code != 200 {
+		t.Fatalf("status = %d body = %s", response.Code, response.Body.String())
+	}
+	if fake.discoveryRequest.APIKey != "" || fake.discoveryRequest.APIKeyRef != "PROVIDER_API_KEY_TEAM" {
+		t.Fatalf("discovery request = %+v", fake.discoveryRequest)
+	}
+}
+
 func TestProviderProfileDeleteChecksNamespacedUse(t *testing.T) {
 	store, server, _ := providerSetup(t)
 	body := `{"id":"openai","name":"OpenAI","provider":"openai-compatible","base_url":"https://api.example.com/v1","max_output_tokens":512,"models":[{"id":"alpha","capabilities":[],"context_window":null}]}`

@@ -15,17 +15,18 @@ import (
 
 type providerAuthStore struct {
 	authStore
-	providerMu      sync.Mutex
-	config          ProviderConfiguration
-	managed         bool
-	inUse           map[string]int
-	synced          []ModelDefinition
-	saveCalls       int
-	validateCalls   int
-	applyCalls      int
-	profiles        map[string]ProviderProfile
-	globalRevision  int64
-	appliedRevision int64
+	providerMu            sync.Mutex
+	config                ProviderConfiguration
+	managed               bool
+	inUse                 map[string]int
+	synced                []ModelDefinition
+	saveCalls             int
+	validateCalls         int
+	applyCalls            int
+	profiles              map[string]ProviderProfile
+	globalRevision        int64
+	appliedRevision       int64
+	secretVersionOverride int
 }
 
 func (s *providerAuthStore) ProviderConfiguration(context.Context) (ProviderConfiguration, error) {
@@ -129,6 +130,9 @@ func (s *providerAuthStore) SetProviderSecret(_ context.Context, id string, secr
 		profile.SecretCipher = secret.Cipher
 		profile.SecretNonce = secret.Nonce
 		profile.SecretKeyVersion = secret.KeyVersion
+		if s.secretVersionOverride != 0 {
+			profile.SecretKeyVersion = s.secretVersionOverride
+		}
 		profile.SecretRef = ""
 	case "env":
 		profile.SecretCipher = nil
@@ -171,20 +175,21 @@ func (s *providerAuthStore) SyncModels(_ context.Context, models []ModelDefiniti
 }
 
 type fakeProviderRuntime struct {
-	mu            sync.Mutex
-	server        *httptest.Server
-	state         runtimeProviderState
-	applyCode     int
-	validateCode  int
-	discovery     []string
-	appliedConfig ProviderConfiguration
-	appliedPlane  providerRuntimePlane
-	applyHistory  []int64
-	applyEntered  chan int64
-	applyRelease  chan struct{}
-	inFlight      int
-	maxInFlight   int
-	models        []ModelDefinition
+	mu               sync.Mutex
+	server           *httptest.Server
+	state            runtimeProviderState
+	applyCode        int
+	validateCode     int
+	discovery        []string
+	appliedConfig    ProviderConfiguration
+	appliedPlane     providerRuntimePlane
+	applyHistory     []int64
+	discoveryRequest ProviderDiscovery
+	applyEntered     chan int64
+	applyRelease     chan struct{}
+	inFlight         int
+	maxInFlight      int
+	models           []ModelDefinition
 }
 
 func newFakeProviderRuntime(t *testing.T) *fakeProviderRuntime {
@@ -278,6 +283,12 @@ func newFakeProviderRuntime(t *testing.T) *fakeProviderRuntime {
 			}
 			json.NewEncoder(w).Encode(fake.state)
 		case r.Method == http.MethodPost && r.URL.Path == "/internal/v1/provider/models":
+			var discovery ProviderDiscovery
+			if err := json.NewDecoder(r.Body).Decode(&discovery); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			fake.discoveryRequest = discovery
 			json.NewEncoder(w).Encode(map[string]any{"models": fake.discovery})
 		case r.Method == http.MethodGet && r.URL.Path == "/internal/v1/models":
 			json.NewEncoder(w).Encode(fake.models)

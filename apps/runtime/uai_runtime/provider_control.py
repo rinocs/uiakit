@@ -98,6 +98,7 @@ class ProviderDiscoveryConfig(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True)
     provider: ProviderKind
     base_url: str = Field(min_length=1, max_length=2000)
+    api_key: str = ''
     api_key_ref: str = Field(default='', max_length=80)
 
     @model_validator(mode='after')
@@ -106,7 +107,7 @@ class ProviderDiscoveryConfig(BaseModel):
             raise ValueError('invalid_provider_url')
         if not _valid_secret_ref(self.api_key_ref):
             raise ValueError('invalid_api_key_ref')
-        if self.provider == 'ollama' and self.api_key_ref:
+        if self.provider == 'ollama' and (self.api_key or self.api_key_ref):
             raise ValueError('api_key_ref_not_supported')
         return self
 
@@ -210,7 +211,7 @@ def state_of(active: ActiveProvider) -> ProviderState:
 
 async def discover_models(config: ProviderDiscoveryConfig, egress: EgressPolicy | None,
                           *, transport: httpx.AsyncBaseTransport | None = None) -> list[str]:
-    secret, _ = resolve_api_key(config.api_key_ref)
+    secret = config.api_key or resolve_api_key(config.api_key_ref)[0]
     try:
         if egress is not None:
             egress.require(config.base_url)
