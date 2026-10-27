@@ -322,6 +322,7 @@ git commit -m "feat(provider): add AES-GCM credential box"
 - Modify: `apps/gateway/types.go:149-153` (`ProviderStore` interface: add methods, keep the two legacy ones)
 - Modify: `apps/gateway/provider_store.go` (add profile methods, implement the alias rule)
 - Modify: `apps/gateway/server.go:24-34` (`Config`), `apps/gateway/main.go` (load `UAI_SECRET_KEY`)
+- Modify: `apps/gateway/provider_test.go` (the fake store must implement the new interface methods so the package compiles; Task 4 replaces it)
 - Test: `apps/gateway/provider_store_test.go`
 
 **Interfaces:**
