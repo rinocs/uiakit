@@ -17,8 +17,12 @@ func TestProviderStoreProfiles(t *testing.T) {
 		BaseURL: "https://api.example.com/v1", MaxOutputTokens: 512,
 		Models: []ProviderModel{{ID: "alpha"}, {ID: "beta", Capabilities: []string{"tool_calling"}}},
 	})
-	if err != nil || created.Revision != 1 || created.ConfigSeq != 1 {
+	if err != nil || created.Revision != 1 || created.ConfigSeq != 2 {
 		t.Fatalf("create: %+v %v", created, err)
+	}
+	firstGlobal := providerGlobalRevision(t, store, ctx)
+	if created.ConfigSeq != firstGlobal {
+		t.Fatalf("first write config_seq %d != global revision %d", created.ConfigSeq, firstGlobal)
 	}
 	if _, err := store.CreateProviderProfile(ctx, created); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate id: %v", err)
@@ -29,7 +33,7 @@ func TestProviderStoreProfiles(t *testing.T) {
 		t.Fatalf("stale expected: %v", err)
 	}
 	updated, err := store.UpdateProviderProfile(ctx, "openai", 1, created)
-	if err != nil || updated.Revision != 2 || updated.ConfigSeq != 2 {
+	if err != nil || updated.Revision != 2 || updated.ConfigSeq != 3 {
 		t.Fatalf("update: %+v %v", updated, err)
 	}
 
@@ -39,8 +43,12 @@ func TestProviderStoreProfiles(t *testing.T) {
 		BaseURL: "http://ollama:11434", MaxOutputTokens: 256,
 		Models: []ProviderModel{{ID: "llama3.2:3b"}},
 	})
-	if err != nil || other.ConfigSeq != 3 {
+	if err != nil || other.ConfigSeq != 4 {
 		t.Fatalf("second profile: %+v %v", other, err)
+	}
+	secondGlobal := providerGlobalRevision(t, store, ctx)
+	if other.ConfigSeq != secondGlobal || secondGlobal <= firstGlobal {
+		t.Fatalf("second write config_seq %d != global revision %d (first %d)", other.ConfigSeq, secondGlobal, firstGlobal)
 	}
 
 	stored, err := store.SetProviderSecret(ctx, "openai", ProviderSecret{
@@ -88,6 +96,15 @@ func TestProviderStoreProfiles(t *testing.T) {
 	}
 }
 
+func providerGlobalRevision(t *testing.T, store *PostgresStore, ctx context.Context) int64 {
+	t.Helper()
+	var revision int64
+	if err := store.pool.QueryRow(ctx, `SELECT revision FROM provider_revision WHERE singleton`).Scan(&revision); err != nil {
+		t.Fatalf("read global revision: %v", err)
+	}
+	return revision
+}
+
 func providerTestStore(t *testing.T) *PostgresStore {
 	t.Helper()
 	url := os.Getenv("UAI_TEST_DATABASE_URL")
@@ -100,10 +117,13 @@ func providerTestStore(t *testing.T) *PostgresStore {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { store.pool.Close() })
-	for _, table := range []string{"provider_profile_models", "provider_profiles", "provider_revision", "assistants"} {
+	for _, table := range []string{"provider_profile_models", "provider_profiles", "assistants"} {
 		if _, err := store.pool.Exec(ctx, "TRUNCATE "+table+" CASCADE"); err != nil {
 			t.Fatalf("truncate %s: %v", table, err)
 		}
+	}
+	if _, err := store.pool.Exec(ctx, `UPDATE provider_revision SET revision=1, applied_revision=0`); err != nil {
+		t.Fatalf("reset provider_revision: %v", err)
 	}
 	return store
 }

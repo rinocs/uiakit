@@ -112,25 +112,13 @@ type providerQuerier interface {
 }
 
 // nextConfigSeq serializes provider profile writes on the singleton
-// provider_revision row, returns the revision to store as config_seq, and
-// advances the global counter. It initializes the row when it is absent, which
-// only happens in tests that truncate it.
+// provider_revision row, advances the global counter, and returns the advanced
+// revision to store as config_seq. Migration 017 seeds the row; a missing row
+// is an error, never a silent re-seed.
 func nextConfigSeq(ctx context.Context, tx pgx.Tx) (int64, error) {
 	var revision int64
-	err := tx.QueryRow(ctx, `SELECT revision FROM provider_revision WHERE singleton FOR UPDATE`).Scan(&revision)
-	if errors.Is(err, pgx.ErrNoRows) {
-		if _, err := tx.Exec(ctx, `INSERT INTO provider_revision (singleton, revision, applied_revision) VALUES (true, 2, 0)`); err != nil {
-			return 0, err
-		}
-		return 1, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE provider_revision SET revision=$1 WHERE singleton`, revision+1); err != nil {
-		return 0, err
-	}
-	return revision, nil
+	err := tx.QueryRow(ctx, `UPDATE provider_revision SET revision=revision+1 WHERE singleton RETURNING revision`).Scan(&revision)
+	return revision, err
 }
 
 func isUniqueViolation(err error) bool {
