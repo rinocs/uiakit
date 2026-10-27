@@ -165,8 +165,9 @@ docker rm -f uai-mig-test
 ```
 
 Expected output, in order: `default|openai-compatible|https://api.example.com/v1|PROVIDER_API_KEY_TEAM|3|3`;
-then `default|alpha|0|0` and `default|beta|0|8192` (Postgres reports an empty
-array length as NULL); then `3|0`; then `17`.
+then `default|alpha||0` and `default|beta|1|8192` (Postgres reports the length of
+an empty array as NULL, so alpha's capability column is blank; beta carries one
+capability); then `3|0`; then `17`.
 
 - [ ] **Step 3: Commit**
 
