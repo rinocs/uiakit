@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 )
 
 type providerAuthStore struct {
@@ -181,7 +180,10 @@ type fakeProviderRuntime struct {
 	appliedConfig ProviderConfiguration
 	appliedPlane  providerRuntimePlane
 	applyHistory  []int64
-	applyDelay    time.Duration
+	applyEntered  chan int64
+	applyRelease  chan struct{}
+	inFlight      int
+	maxInFlight   int
 	models        []ModelDefinition
 }
 
@@ -233,13 +235,20 @@ func newFakeProviderRuntime(t *testing.T) *fakeProviderRuntime {
 					models = append(models, providerDefinitions(ProviderConfiguration{Provider: profile.Provider, MaxOutputTokens: profile.MaxOutputTokens, Models: profile.Models})...)
 				}
 				state := runtimeProviderState{Revision: int(plane.Revision), APIKeyConfigured: true, Models: models, Profiles: plane.Profiles}
-				delay := fake.applyDelay
-				fake.applyDelay = 0
-				if delay > 0 {
+				fake.inFlight++
+				if fake.inFlight > fake.maxInFlight {
+					fake.maxInFlight = fake.inFlight
+				}
+				if fake.applyEntered != nil {
+					fake.applyEntered <- plane.Revision
+				}
+				release := fake.applyRelease
+				if release != nil {
 					fake.mu.Unlock()
-					time.Sleep(delay)
+					<-release
 					fake.mu.Lock()
 				}
+				fake.inFlight--
 				fake.appliedPlane = plane
 				fake.applyHistory = append(fake.applyHistory, plane.Revision)
 				fake.models = models

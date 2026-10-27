@@ -2,15 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
 
 func TestConcurrentProfileWritesSerializePlaneApply(t *testing.T) {
 	store, server, fake := providerSetup(t)
-	fake.applyDelay = 50 * time.Millisecond
+	fake.applyEntered = make(chan int64, 2)
+	fake.applyRelease = make(chan struct{}, 2)
 	body := func(id string) string {
 		return `{"id":"` + id + `","name":"` + id + `","provider":"ollama","base_url":"http://ollama:11434","max_output_tokens":256,"models":[{"id":"model"}]}`
 	}
@@ -20,35 +21,62 @@ func TestConcurrentProfileWritesSerializePlaneApply(t *testing.T) {
 		body   string
 	}
 	results := make(chan result, 2)
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		response := providerRequest(server, "POST", "/v1/providers", body("first"), "")
-		results <- result{id: "first", status: response.Code, body: response.Body.String()}
-	}()
-	time.Sleep(10 * time.Millisecond)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		response := providerRequest(server, "POST", "/v1/providers", body("second"), "")
-		results <- result{id: "second", status: response.Code, body: response.Body.String()}
-	}()
-	wg.Wait()
-	close(results)
-
-	completed := make([]result, 0, 2)
-	for result := range results {
-		if result.status != 200 || !strings.Contains(result.body, `"applied":true`) {
-			t.Fatalf("concurrent %s write status=%d body=%s", result.id, result.status, result.body)
-		}
-		completed = append(completed, result)
+	done := make(chan struct{}, 2)
+	start := func(id string) {
+		go func() {
+			response := providerRequest(server, "POST", "/v1/providers", body(id), "")
+			results <- result{id: id, status: response.Code, body: response.Body.String()}
+			done <- struct{}{}
+		}()
 	}
-
+	start("first")
+	select {
+	case <-fake.applyEntered:
+		// Writer A is now inside applyProviderPlane and is blocked by the fake.
+	case <-time.After(2 * time.Second):
+		t.Fatal("writer A did not enter the runtime apply")
+	}
+	start("second")
+	secondBeforeRelease := false
+	select {
+	case revision := <-fake.applyEntered:
+		secondBeforeRelease = true
+		t.Errorf("second plane revision %d entered before the first was released; apply is not serialized", revision)
+	case <-time.After(300 * time.Millisecond):
+		// With the mutex, writer B is waiting before the runtime apply; this timeout is expected.
+	}
+	fake.applyRelease <- struct{}{}
+	if !secondBeforeRelease {
+		select {
+		case <-fake.applyEntered:
+			// The second apply may enter only after writer A has been released.
+		case <-time.After(2 * time.Second):
+			t.Fatal("writer B did not enter the runtime apply after writer A was released")
+		}
+	}
+	// If the mutex is absent, both handlers were already blocked and both tokens
+	// are needed to let the test join its writers before reporting the violation.
+	fake.applyRelease <- struct{}{}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("profile writer did not finish")
+		}
+	}
 	fake.mu.Lock()
+	fake.applyRelease = nil
+	fake.applyEntered = nil
 	history := append([]int64(nil), fake.applyHistory...)
+	maxInFlight := fake.maxInFlight
 	finalRevision := fake.state.Revision
 	fake.mu.Unlock()
+	if secondBeforeRelease {
+		t.Fatal("second apply arrived before release")
+	}
+	if maxInFlight != 1 {
+		t.Fatalf("maximum apply concurrency=%d, want 1", maxInFlight)
+	}
 	if len(history) != 2 {
 		t.Fatalf("apply history = %v, want two revisions", history)
 	}
@@ -57,32 +85,28 @@ func TestConcurrentProfileWritesSerializePlaneApply(t *testing.T) {
 			t.Fatalf("apply history went backwards: %v", history)
 		}
 	}
-
 	store.providerMu.Lock()
-	reported := make(map[string]int64, len(completed))
-	for _, result := range completed {
-		reported[result.id] = store.profiles[result.id].ConfigSeq
-	}
 	applied := store.appliedRevision
-	store.providerMu.Unlock()
-	for _, revision := range reported {
-		found := false
-		for _, received := range history {
-			if received == revision {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("write revision %d is absent from apply history %v", revision, history)
-		}
+	persisted := map[string]ProviderProfile{
+		"first": store.profiles["first"], "second": store.profiles["second"],
 	}
-	for i, result := range completed {
-		revision := reported[result.id]
-		for _, received := range history[:i] {
-			if revision < received {
-				t.Fatalf("write %s reported revision %d below earlier received plane %d; history=%v", result.id, revision, received, history)
-			}
+	store.providerMu.Unlock()
+	for i := 0; i < 2; i++ {
+		var result result
+		select {
+		case result = <-results:
+		default:
+			t.Fatal("missing profile writer response")
+		}
+		if result.status != 200 || !strings.Contains(result.body, `"applied":true`) {
+			t.Fatalf("concurrent %s write status=%d body=%s", result.id, result.status, result.body)
+		}
+		var view ProviderProfileView
+		if err := json.Unmarshal([]byte(result.body), &view); err != nil {
+			t.Fatalf("decode %s response: %v", result.id, err)
+		}
+		if view.Revision != persisted[result.id].Revision {
+			t.Fatalf("%s response revision=%d persisted revision=%d", result.id, view.Revision, persisted[result.id].Revision)
 		}
 	}
 	if int64(finalRevision) != history[len(history)-1] || applied != int64(finalRevision) {
