@@ -14,14 +14,16 @@ import (
 
 type providerAuthStore struct {
 	authStore
-	providerMu    sync.Mutex
-	config        ProviderConfiguration
-	managed       bool
-	inUse         map[string]int
-	synced        []ModelDefinition
-	saveCalls     int
-	validateCalls int
-	applyCalls    int
+	providerMu      sync.Mutex
+	config          ProviderConfiguration
+	managed         bool
+	inUse           map[string]int
+	synced          []ModelDefinition
+	saveCalls       int
+	validateCalls   int
+	applyCalls      int
+	profiles        map[string]ProviderProfile
+	appliedRevision int64
 }
 
 func (s *providerAuthStore) ProviderConfiguration(context.Context) (ProviderConfiguration, error) {
@@ -50,6 +52,106 @@ func (s *providerAuthStore) AssistantsUsingModel(_ context.Context, model string
 	s.providerMu.Lock()
 	defer s.providerMu.Unlock()
 	return s.inUse[model], nil
+}
+
+func (s *providerAuthStore) ProviderProfiles(context.Context) ([]ProviderProfile, error) {
+	s.providerMu.Lock()
+	defer s.providerMu.Unlock()
+	out := make([]ProviderProfile, 0, len(s.profiles))
+	for _, profile := range s.profiles {
+		out = append(out, profile)
+	}
+	return out, nil
+}
+
+func (s *providerAuthStore) ProviderProfile(_ context.Context, id string) (ProviderProfile, error) {
+	s.providerMu.Lock()
+	defer s.providerMu.Unlock()
+	if profile, ok := s.profiles[id]; ok {
+		return profile, nil
+	}
+	return ProviderProfile{}, ErrNotFound
+}
+
+func (s *providerAuthStore) CreateProviderProfile(_ context.Context, profile ProviderProfile) (ProviderProfile, error) {
+	s.providerMu.Lock()
+	defer s.providerMu.Unlock()
+	if _, ok := s.profiles[profile.ID]; ok {
+		return profile, ErrConflict
+	}
+	profile.Revision = 1
+	s.profiles[profile.ID] = profile
+	return profile, nil
+}
+
+func (s *providerAuthStore) UpdateProviderProfile(_ context.Context, id string, expected int, profile ProviderProfile) (ProviderProfile, error) {
+	s.providerMu.Lock()
+	defer s.providerMu.Unlock()
+	current, ok := s.profiles[id]
+	if !ok {
+		return profile, ErrNotFound
+	}
+	if current.Revision != expected {
+		return profile, ErrConflict
+	}
+	profile.ID = id
+	profile.Revision = current.Revision + 1
+	s.profiles[id] = profile
+	return profile, nil
+}
+
+func (s *providerAuthStore) DeleteProviderProfile(_ context.Context, id string) error {
+	s.providerMu.Lock()
+	defer s.providerMu.Unlock()
+	if _, ok := s.profiles[id]; !ok {
+		return ErrNotFound
+	}
+	delete(s.profiles, id)
+	return nil
+}
+
+func (s *providerAuthStore) SetProviderSecret(_ context.Context, id string, secret ProviderSecret) (ProviderProfile, error) {
+	s.providerMu.Lock()
+	defer s.providerMu.Unlock()
+	profile, ok := s.profiles[id]
+	if !ok {
+		return ProviderProfile{}, ErrNotFound
+	}
+	switch secret.Source {
+	case "stored":
+		profile.SecretCipher = secret.Cipher
+		profile.SecretNonce = secret.Nonce
+		profile.SecretKeyVersion = secret.KeyVersion
+		profile.SecretRef = ""
+	case "env":
+		profile.SecretCipher = nil
+		profile.SecretNonce = nil
+		profile.SecretKeyVersion = 0
+		profile.SecretRef = secret.Ref
+	case "none":
+		profile.SecretCipher = nil
+		profile.SecretNonce = nil
+		profile.SecretKeyVersion = 0
+		profile.SecretRef = ""
+	}
+	profile.Revision++
+	s.profiles[id] = profile
+	return profile, nil
+}
+
+func (s *providerAuthStore) ProviderAppliedRevision(context.Context) (int64, error) {
+	s.providerMu.Lock()
+	defer s.providerMu.Unlock()
+	return s.appliedRevision, nil
+}
+
+func (s *providerAuthStore) MarkProviderApplied(_ context.Context, revision int64) error {
+	s.providerMu.Lock()
+	defer s.providerMu.Unlock()
+	if revision > s.appliedRevision {
+		s.appliedRevision = revision
+	}
+	return nil
 }
 
 func (s *providerAuthStore) SyncModels(_ context.Context, models []ModelDefinition) error {
@@ -142,7 +244,8 @@ func providerSetup(t *testing.T) (*providerAuthStore, *server, *fakeProviderRunt
 			actor:  Principal{ID: "admin-1", Role: "admin", Scopes: roleScopes["admin"]},
 			digest: hex.EncodeToString(digest[:]),
 		},
-		inUse: map[string]int{},
+		inUse:    map[string]int{},
+		profiles: map[string]ProviderProfile{},
 	}
 	fake := newFakeProviderRuntime(t)
 	server := NewServer(store, Config{Model: "test", RuntimeURL: fake.server.URL, InternalKey: "internal-secret"})

@@ -23,6 +23,7 @@ import (
 
 type Config struct {
 	APIKeyHash, InternalKey, RuntimeURL, Model string
+	SecretKey                                  *secretBox
 	RateLimit                                  int
 	RateLimitPerPrincipal                      int
 	WidgetOrigins                              []string
