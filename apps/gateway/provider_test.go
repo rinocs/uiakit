@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,6 +24,7 @@ type providerAuthStore struct {
 	validateCalls   int
 	applyCalls      int
 	profiles        map[string]ProviderProfile
+	globalRevision  int64
 	appliedRevision int64
 }
 
@@ -79,7 +81,9 @@ func (s *providerAuthStore) CreateProviderProfile(_ context.Context, profile Pro
 	if _, ok := s.profiles[profile.ID]; ok {
 		return profile, ErrConflict
 	}
+	s.globalRevision++
 	profile.Revision = 1
+	profile.ConfigSeq = s.globalRevision
 	s.profiles[profile.ID] = profile
 	return profile, nil
 }
@@ -94,8 +98,10 @@ func (s *providerAuthStore) UpdateProviderProfile(_ context.Context, id string, 
 	if current.Revision != expected {
 		return profile, ErrConflict
 	}
+	s.globalRevision++
 	profile.ID = id
 	profile.Revision = current.Revision + 1
+	profile.ConfigSeq = s.globalRevision
 	s.profiles[id] = profile
 	return profile, nil
 }
@@ -106,6 +112,7 @@ func (s *providerAuthStore) DeleteProviderProfile(_ context.Context, id string) 
 	if _, ok := s.profiles[id]; !ok {
 		return ErrNotFound
 	}
+	s.globalRevision++
 	delete(s.profiles, id)
 	return nil
 }
@@ -134,7 +141,9 @@ func (s *providerAuthStore) SetProviderSecret(_ context.Context, id string, secr
 		profile.SecretKeyVersion = 0
 		profile.SecretRef = ""
 	}
+	s.globalRevision++
 	profile.Revision++
+	profile.ConfigSeq = s.globalRevision
 	s.profiles[id] = profile
 	return profile, nil
 }
@@ -169,6 +178,7 @@ type fakeProviderRuntime struct {
 	validateCode  int
 	discovery     []string
 	appliedConfig ProviderConfiguration
+	appliedPlane  providerRuntimePlane
 	models        []ModelDefinition
 }
 
@@ -203,8 +213,29 @@ func newFakeProviderRuntime(t *testing.T) *fakeProviderRuntime {
 			}
 			json.NewEncoder(w).Encode(map[string]any{"api_key_configured": true})
 		case r.Method == http.MethodPost && r.URL.Path == "/internal/v1/provider/apply":
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				return
+			}
+			if fake.applyCode != 0 {
+				w.WriteHeader(fake.applyCode)
+				json.NewEncoder(w).Encode(map[string]string{"detail": "provider_down"})
+				return
+			}
+			var plane providerRuntimePlane
+			if err := json.Unmarshal(data, &plane); err == nil && plane.Profiles != nil {
+				fake.appliedPlane = plane
+				fake.models = nil
+				for _, profile := range plane.Profiles {
+					fake.models = append(fake.models, providerDefinitions(ProviderConfiguration{Provider: profile.Provider, MaxOutputTokens: profile.MaxOutputTokens, Models: profile.Models})...)
+				}
+				fake.state = runtimeProviderState{Revision: int(plane.Revision), APIKeyConfigured: true, Models: fake.models, Profiles: plane.Profiles}
+				json.NewEncoder(w).Encode(fake.state)
+				return
+			}
 			var config providerRuntimeConfig
-			if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+			if err := json.Unmarshal(data, &config); err != nil {
 				w.WriteHeader(http.StatusUnprocessableEntity)
 				return
 			}
@@ -248,7 +279,7 @@ func providerSetup(t *testing.T) (*providerAuthStore, *server, *fakeProviderRunt
 		profiles: map[string]ProviderProfile{},
 	}
 	fake := newFakeProviderRuntime(t)
-	server := NewServer(store, Config{Model: "test", RuntimeURL: fake.server.URL, InternalKey: "internal-secret"})
+	server := NewServer(store, Config{Model: "test", RuntimeURL: fake.server.URL, InternalKey: "internal-secret", SecretKey: testBox(t)})
 	return store, server, fake
 }
 

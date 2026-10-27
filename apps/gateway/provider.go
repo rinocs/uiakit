@@ -65,13 +65,14 @@ type ProviderModelList struct {
 }
 
 type runtimeProviderState struct {
-	Revision         int               `json:"revision"`
-	Provider         string            `json:"provider"`
-	BaseURL          string            `json:"base_url"`
-	APIKeyRef        string            `json:"api_key_ref"`
-	APIKeyConfigured bool              `json:"api_key_configured"`
-	MaxOutputTokens  int               `json:"max_output_tokens"`
-	Models           []ModelDefinition `json:"models"`
+	Revision         int                      `json:"revision"`
+	Provider         string                   `json:"provider"`
+	BaseURL          string                   `json:"base_url"`
+	APIKeyRef        string                   `json:"api_key_ref"`
+	APIKeyConfigured bool                     `json:"api_key_configured"`
+	MaxOutputTokens  int                      `json:"max_output_tokens"`
+	Models           []ModelDefinition        `json:"models"`
+	Profiles         []providerRuntimeProfile `json:"profiles,omitempty"`
 }
 
 type providerRuntimeConfig struct {
@@ -455,10 +456,396 @@ func (s *server) discoverProviderModels(w http.ResponseWriter, r *http.Request) 
 	respond(w, 200, found)
 }
 
+// ProviderProfileView is the public, credential-free representation of a provider profile.
+type ProviderProfileView struct {
+	ID               string          `json:"id"`
+	Name             string          `json:"name"`
+	Provider         string          `json:"provider"`
+	BaseURL          string          `json:"base_url"`
+	SecretSource     string          `json:"secret_source"`
+	SecretConfigured bool            `json:"secret_configured"`
+	SecretReadable   bool            `json:"secret_readable"`
+	MaxOutputTokens  int             `json:"max_output_tokens"`
+	Revision         int             `json:"revision"`
+	Applied          bool            `json:"applied"`
+	Managed          bool            `json:"managed"`
+	Models           []ProviderModel `json:"models"`
+}
+
+type ProviderProfileList struct {
+	Profiles []ProviderProfileView `json:"profiles"`
+}
+
+type ProviderProfileInput struct {
+	Name            string          `json:"name"`
+	Provider        string          `json:"provider"`
+	BaseURL         string          `json:"base_url"`
+	MaxOutputTokens int             `json:"max_output_tokens"`
+	Models          []ProviderModel `json:"models"`
+}
+
+type ProviderProfileCreate struct {
+	ID string `json:"id"`
+	ProviderProfileInput
+}
+
+type providerRuntimePlane struct {
+	Revision int64                    `json:"revision"`
+	Profiles []providerRuntimeProfile `json:"profiles"`
+}
+
+type providerRuntimeProfile struct {
+	ID              string          `json:"id"`
+	Name            string          `json:"name"`
+	Provider        string          `json:"provider"`
+	BaseURL         string          `json:"base_url"`
+	APIKey          string          `json:"api_key"`
+	APIKeyRef       string          `json:"api_key_ref"`
+	MaxOutputTokens int             `json:"max_output_tokens"`
+	Models          []ProviderModel `json:"models"`
+}
+
+var providerProfileID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+
+func validProviderProfileInput(id, name, kind, baseURL string, maxTokens int, models []ProviderModel) bool {
+	if !providerProfileID.MatchString(id) || name == "" || len(name) > 80 || name != strings.TrimSpace(name) ||
+		!validProviderKind(kind) || !validProviderBaseURL(baseURL) || maxTokens < 1 || maxTokens > 8192 ||
+		len(models) < 1 || len(models) > 50 {
+		return false
+	}
+	seen := make(map[string]bool, len(models))
+	for _, model := range models {
+		if !validModelID(model.ID) || seen[model.ID] || len(id)+1+len(model.ID) > 200 {
+			return false
+		}
+		seen[model.ID] = true
+		if model.ContextWindow != nil && *model.ContextWindow < 1 {
+			return false
+		}
+		caps := make(map[string]bool, len(model.Capabilities))
+		for _, capability := range model.Capabilities {
+			if (capability != "tool_calling" && capability != "structured_output") || caps[capability] || kind == "ollama" {
+				return false
+			}
+			caps[capability] = true
+		}
+	}
+	return true
+}
+
+func providerProfileValidationCode(id string, input ProviderProfileInput) string {
+	if !providerProfileID.MatchString(id) {
+		return "invalid_profile_id"
+	}
+	if !validProviderBaseURL(input.BaseURL) {
+		return "invalid_provider_url"
+	}
+	if input.Name == "" || len(input.Name) > 80 || input.Name != strings.TrimSpace(input.Name) ||
+		!validProviderKind(input.Provider) || input.MaxOutputTokens < 1 || input.MaxOutputTokens > 8192 ||
+		len(input.Models) < 1 || len(input.Models) > 50 {
+		return "invalid_configuration"
+	}
+	seen := make(map[string]bool, len(input.Models))
+	for _, model := range input.Models {
+		if !validModelID(model.ID) || len(id)+1+len(model.ID) > 200 {
+			return "invalid_model_id"
+		}
+		if seen[model.ID] {
+			return "duplicate_model_id"
+		}
+		seen[model.ID] = true
+		if model.ContextWindow != nil && *model.ContextWindow < 1 {
+			return "invalid_configuration"
+		}
+		caps := make(map[string]bool, len(model.Capabilities))
+		for _, capability := range model.Capabilities {
+			if (capability != "tool_calling" && capability != "structured_output") || caps[capability] || input.Provider == "ollama" {
+				return "invalid_configuration"
+			}
+			caps[capability] = true
+		}
+	}
+	return ""
+}
+
+func providerProfileView(profile ProviderProfile, applied int64) ProviderProfileView {
+	source := "none"
+	if profile.SecretCipher != nil {
+		source = "stored"
+	} else if profile.SecretRef != "" {
+		source = "env"
+	}
+	return ProviderProfileView{
+		ID: profile.ID, Name: profile.Name, Provider: profile.Provider, BaseURL: profile.BaseURL,
+		SecretSource: source, SecretConfigured: source != "none", SecretReadable: profile.SecretCipher == nil || profile.SecretKeyVersion == providerSecretKeyVersion,
+		MaxOutputTokens: profile.MaxOutputTokens, Revision: profile.Revision,
+		Applied: applied >= profile.ConfigSeq, Managed: true, Models: profile.Models,
+	}
+}
+
+func (s *server) providerProfileView(profile ProviderProfile, applied int64) ProviderProfileView {
+	view := providerProfileView(profile, applied)
+	if profile.SecretCipher != nil {
+		view.SecretReadable = s.config.SecretKey != nil && profile.SecretKeyVersion == providerSecretKeyVersion
+	}
+	return view
+}
+
+func (s *server) runtimePlane(ctx context.Context) (providerRuntimePlane, error) {
+	profiles, err := s.store.ProviderProfiles(ctx)
+	if err != nil {
+		return providerRuntimePlane{}, err
+	}
+	revision, err := s.store.ProviderAppliedRevision(ctx)
+	if err != nil {
+		return providerRuntimePlane{}, err
+	}
+	// The store's applied counter is not the desired revision. Use the greatest
+	// profile config sequence so concurrent profile writes share one plane.
+	for _, profile := range profiles {
+		if profile.ConfigSeq > revision {
+			revision = profile.ConfigSeq
+		}
+	}
+	plane := providerRuntimePlane{Revision: revision, Profiles: make([]providerRuntimeProfile, 0, len(profiles))}
+	for _, profile := range profiles {
+		runtimeProfile := providerRuntimeProfile{
+			ID: profile.ID, Name: profile.Name, Provider: profile.Provider, BaseURL: profile.BaseURL,
+			MaxOutputTokens: profile.MaxOutputTokens, Models: profile.Models,
+		}
+		if profile.SecretCipher != nil {
+			if s.config.SecretKey == nil {
+				return providerRuntimePlane{}, errSecretUnreadable
+			}
+			value, openErr := s.config.SecretKey.open(profile.ID, profile.SecretCipher, profile.SecretNonce, profile.SecretKeyVersion)
+			if openErr != nil {
+				return providerRuntimePlane{}, errSecretUnreadable
+			}
+			runtimeProfile.APIKey = value
+		} else {
+			runtimeProfile.APIKeyRef = profile.SecretRef
+		}
+		plane.Profiles = append(plane.Profiles, runtimeProfile)
+	}
+	sort.Slice(plane.Profiles, func(i, j int) bool { return plane.Profiles[i].ID < plane.Profiles[j].ID })
+	return plane, nil
+}
+
+func (s *server) applyProviderPlane(ctx context.Context) (int64, error) {
+	plane, err := s.runtimePlane(ctx)
+	if err != nil {
+		return 0, err
+	}
+	status, data, err := s.runtimeProviderRequest(ctx, http.MethodPost, "/internal/v1/provider/apply", plane)
+	if err != nil {
+		return 0, errors.New("provider_pending")
+	}
+	if status != http.StatusOK {
+		_ = data
+		return 0, errors.New("provider_pending")
+	}
+	if err := s.syncRuntimeModels(ctx); err != nil {
+		return 0, errors.New("provider_pending")
+	}
+	if err := s.store.MarkProviderApplied(ctx, plane.Revision); err != nil {
+		return 0, err
+	}
+	return plane.Revision, nil
+}
+
+func (s *server) providers(w http.ResponseWriter, r *http.Request) {
+	profiles, err := s.store.ProviderProfiles(r.Context())
+	if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	applied, err := s.store.ProviderAppliedRevision(r.Context())
+	if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	views := make([]ProviderProfileView, 0, len(profiles))
+	for _, profile := range profiles {
+		views = append(views, s.providerProfileView(profile, applied))
+	}
+	respond(w, http.StatusOK, ProviderProfileList{Profiles: views})
+}
+
+func (s *server) createProviderProfile(w http.ResponseWriter, r *http.Request) {
+	var body ProviderProfileCreate
+	if !decode(w, r, &body) {
+		return
+	}
+	input := body.ProviderProfileInput
+	if code := providerProfileValidationCode(body.ID, input); code != "" {
+		problem(w, 422, code)
+		return
+	}
+	profiles, err := s.store.ProviderProfiles(r.Context())
+	if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	if len(profiles) >= 20 {
+		problem(w, 422, "too_many_profiles")
+		return
+	}
+	saved, err := s.store.CreateProviderProfile(r.Context(), ProviderProfile{ID: body.ID, Name: input.Name,
+		Provider: input.Provider, BaseURL: input.BaseURL, MaxOutputTokens: input.MaxOutputTokens, Models: input.Models})
+	if errors.Is(err, ErrConflict) {
+		problem(w, 409, "version_conflict")
+		return
+	}
+	if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	applied, err := s.applyProviderPlane(r.Context())
+	if errors.Is(err, errSecretUnreadable) {
+		problem(w, 502, "secret_unreadable")
+		return
+	}
+	if err != nil && err.Error() == "provider_pending" {
+		problem(w, 502, "provider_pending")
+		return
+	}
+	if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	w.Header().Set("ETag", etag(saved.Revision))
+	respond(w, http.StatusOK, s.providerProfileView(saved, applied))
+}
+
+func (s *server) providerProfile(w http.ResponseWriter, r *http.Request) {
+	profile, err := s.store.ProviderProfile(r.Context(), chi.URLParam(r, "id"))
+	if errors.Is(err, ErrNotFound) {
+		problem(w, 404, "not_found")
+		return
+	}
+	if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	applied, err := s.store.ProviderAppliedRevision(r.Context())
+	if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	w.Header().Set("ETag", etag(profile.Revision))
+	respond(w, http.StatusOK, s.providerProfileView(profile, applied))
+}
+
+func (s *server) updateProviderProfile(w http.ResponseWriter, r *http.Request) {
+	expected, ok := providerExpected(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	var input ProviderProfileInput
+	if !decode(w, r, &input) {
+		return
+	}
+	if code := providerProfileValidationCode(id, input); code != "" {
+		problem(w, 422, code)
+		return
+	}
+	current, err := s.store.ProviderProfile(r.Context(), id)
+	if errors.Is(err, ErrNotFound) {
+		problem(w, 404, "not_found")
+		return
+	}
+	if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	if modelID, checkErr := removedModelInUse(r.Context(), s, current.Models, input.Models); checkErr != nil {
+		problem(w, 500, "store_error")
+		return
+	} else if modelID != "" {
+		problem(w, 409, "model_in_use")
+		return
+	}
+	saved, err := s.store.UpdateProviderProfile(r.Context(), id, expected, ProviderProfile{ID: id, Name: input.Name,
+		Provider: input.Provider, BaseURL: input.BaseURL, MaxOutputTokens: input.MaxOutputTokens, Models: input.Models})
+	if errors.Is(err, ErrConflict) {
+		problem(w, 412, "version_conflict")
+		return
+	}
+	if errors.Is(err, ErrNotFound) {
+		problem(w, 404, "not_found")
+		return
+	}
+	if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	applied, err := s.applyProviderPlane(r.Context())
+	if err != nil {
+		if errors.Is(err, errSecretUnreadable) {
+			problem(w, 502, "secret_unreadable")
+		} else if err.Error() == "provider_pending" {
+			problem(w, 502, "provider_pending")
+		} else {
+			problem(w, 500, "store_error")
+		}
+		return
+	}
+	w.Header().Set("ETag", etag(saved.Revision))
+	respond(w, http.StatusOK, s.providerProfileView(saved, applied))
+}
+
+func (s *server) deleteProviderProfile(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	profile, err := s.store.ProviderProfile(r.Context(), id)
+	if errors.Is(err, ErrNotFound) {
+		problem(w, 404, "not_found")
+		return
+	}
+	if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	for _, model := range profile.Models {
+		count, countErr := s.store.AssistantsUsingModel(r.Context(), id+"/"+model.ID)
+		if countErr != nil {
+			problem(w, 500, "store_error")
+			return
+		}
+		if count > 0 {
+			problem(w, 409, "profile_in_use")
+			return
+		}
+	}
+	if err := s.store.DeleteProviderProfile(r.Context(), id); errors.Is(err, ErrNotFound) {
+		problem(w, 404, "not_found")
+		return
+	} else if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	if _, err := s.applyProviderPlane(r.Context()); err != nil {
+		if errors.Is(err, errSecretUnreadable) {
+			problem(w, 502, "secret_unreadable")
+		} else if err.Error() == "provider_pending" {
+			problem(w, 502, "provider_pending")
+		} else {
+			problem(w, 500, "store_error")
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *server) providerRoutes(r chi.Router) {
 	r.With(requireScope("providers:read")).Get("/v1/provider", s.provider)
 	r.With(requireScope("providers:write")).Put("/v1/provider", s.updateProvider)
 	r.With(requireScope("providers:write")).Post("/v1/provider/models", s.discoverProviderModels)
+	r.With(requireScope("providers:read")).Get("/v1/providers", s.providers)
+	r.With(requireScope("providers:write")).Post("/v1/providers", s.createProviderProfile)
+	r.With(requireScope("providers:read")).Get("/v1/providers/{id}", s.providerProfile)
+	r.With(requireScope("providers:write")).Put("/v1/providers/{id}", s.updateProviderProfile)
+	r.With(requireScope("providers:write")).Delete("/v1/providers/{id}", s.deleteProviderProfile)
 }
 
 func (s *server) internalProviderRoutes(r chi.Router) {
