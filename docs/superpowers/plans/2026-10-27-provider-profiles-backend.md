@@ -346,7 +346,9 @@ git commit -m "feat(provider): add AES-GCM credential box"
 
 `apps/gateway/provider_store_test.go`, skipped when `UAI_TEST_DATABASE_URL` is
 unset (`providerTestStore(t)` calls `OpenStore`, truncates
-`provider_profile_models`, `provider_profiles`, `provider_revision`, `assistants`):
+`provider_profile_models`, `provider_profiles` and `assistants`, and resets the
+singleton with `UPDATE provider_revision SET revision=1, applied_revision=0` so the
+counter is deterministic without ever removing the row):
 
 ```go
 func TestProviderStoreProfiles(t *testing.T) {
@@ -385,7 +387,7 @@ func TestProviderStoreProfiles(t *testing.T) {
 	}
 
 	stored, err := store.SetProviderSecret(ctx, "openai", ProviderSecret{
-		Source: "stored", Cipher: []byte("cipher"), Nonce: bytes.Repeat([]byte{1}, 12), KeyVersion: 1,
+		Source: "stored", Cipher: bytes.Repeat([]byte{7}, 32), Nonce: bytes.Repeat([]byte{1}, 12), KeyVersion: 1,
 	})
 	if err != nil || len(stored.SecretCipher) == 0 || stored.SecretRef != "" || stored.Revision != 3 {
 		t.Fatalf("stored secret: %+v %v", stored, err)
