@@ -5,38 +5,88 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestConcurrentProfileWritesSerializePlaneApply(t *testing.T) {
 	store, server, fake := providerSetup(t)
+	fake.applyDelay = 50 * time.Millisecond
 	body := func(id string) string {
 		return `{"id":"` + id + `","name":"` + id + `","provider":"ollama","base_url":"http://ollama:11434","max_output_tokens":256,"models":[{"id":"model"}]}`
 	}
-	responses := make(chan int, 2)
-	var wg sync.WaitGroup
-	for _, id := range []string{"first", "second"} {
-		id := id
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			responses <- providerRequest(server, "POST", "/v1/providers", body(id), "").Code
-		}()
+	type result struct {
+		id     string
+		status int
+		body   string
 	}
+	results := make(chan result, 2)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		response := providerRequest(server, "POST", "/v1/providers", body("first"), "")
+		results <- result{id: "first", status: response.Code, body: response.Body.String()}
+	}()
+	time.Sleep(10 * time.Millisecond)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		response := providerRequest(server, "POST", "/v1/providers", body("second"), "")
+		results <- result{id: "second", status: response.Code, body: response.Body.String()}
+	}()
 	wg.Wait()
-	close(responses)
-	for code := range responses {
-		if code != 200 {
-			t.Fatalf("concurrent create status=%d", code)
+	close(results)
+
+	completed := make([]result, 0, 2)
+	for result := range results {
+		if result.status != 200 || !strings.Contains(result.body, `"applied":true`) {
+			t.Fatalf("concurrent %s write status=%d body=%s", result.id, result.status, result.body)
+		}
+		completed = append(completed, result)
+	}
+
+	fake.mu.Lock()
+	history := append([]int64(nil), fake.applyHistory...)
+	finalRevision := fake.state.Revision
+	fake.mu.Unlock()
+	if len(history) != 2 {
+		t.Fatalf("apply history = %v, want two revisions", history)
+	}
+	for i := 1; i < len(history); i++ {
+		if history[i] < history[i-1] {
+			t.Fatalf("apply history went backwards: %v", history)
 		}
 	}
-	fake.mu.Lock()
-	planeRevision := fake.appliedPlane.Revision
-	fake.mu.Unlock()
+
 	store.providerMu.Lock()
+	reported := make(map[string]int64, len(completed))
+	for _, result := range completed {
+		reported[result.id] = store.profiles[result.id].ConfigSeq
+	}
 	applied := store.appliedRevision
 	store.providerMu.Unlock()
-	if planeRevision != 2 || applied != planeRevision {
-		t.Fatalf("plane revision=%d applied_revision=%d, want both 2", planeRevision, applied)
+	for _, revision := range reported {
+		found := false
+		for _, received := range history {
+			if received == revision {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("write revision %d is absent from apply history %v", revision, history)
+		}
+	}
+	for i, result := range completed {
+		revision := reported[result.id]
+		for _, received := range history[:i] {
+			if revision < received {
+				t.Fatalf("write %s reported revision %d below earlier received plane %d; history=%v", result.id, revision, received, history)
+			}
+		}
+	}
+	if int64(finalRevision) != history[len(history)-1] || applied != int64(finalRevision) {
+		t.Fatalf("final plane revision=%d history=%v applied_revision=%d", finalRevision, history, applied)
 	}
 }
 

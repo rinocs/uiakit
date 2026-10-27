@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 type providerAuthStore struct {
@@ -179,6 +180,8 @@ type fakeProviderRuntime struct {
 	discovery     []string
 	appliedConfig ProviderConfiguration
 	appliedPlane  providerRuntimePlane
+	applyHistory  []int64
+	applyDelay    time.Duration
 	models        []ModelDefinition
 }
 
@@ -225,13 +228,23 @@ func newFakeProviderRuntime(t *testing.T) *fakeProviderRuntime {
 			}
 			var plane providerRuntimePlane
 			if err := json.Unmarshal(data, &plane); err == nil && plane.Profiles != nil {
-				fake.appliedPlane = plane
-				fake.models = nil
+				models := make([]ModelDefinition, 0)
 				for _, profile := range plane.Profiles {
-					fake.models = append(fake.models, providerDefinitions(ProviderConfiguration{Provider: profile.Provider, MaxOutputTokens: profile.MaxOutputTokens, Models: profile.Models})...)
+					models = append(models, providerDefinitions(ProviderConfiguration{Provider: profile.Provider, MaxOutputTokens: profile.MaxOutputTokens, Models: profile.Models})...)
 				}
-				fake.state = runtimeProviderState{Revision: int(plane.Revision), APIKeyConfigured: true, Models: fake.models, Profiles: plane.Profiles}
-				json.NewEncoder(w).Encode(fake.state)
+				state := runtimeProviderState{Revision: int(plane.Revision), APIKeyConfigured: true, Models: models, Profiles: plane.Profiles}
+				delay := fake.applyDelay
+				fake.applyDelay = 0
+				if delay > 0 {
+					fake.mu.Unlock()
+					time.Sleep(delay)
+					fake.mu.Lock()
+				}
+				fake.appliedPlane = plane
+				fake.applyHistory = append(fake.applyHistory, plane.Revision)
+				fake.models = models
+				fake.state = state
+				json.NewEncoder(w).Encode(state)
 				return
 			}
 			var config providerRuntimeConfig
