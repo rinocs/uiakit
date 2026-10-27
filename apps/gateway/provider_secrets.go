@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -56,7 +57,7 @@ func (b *secretBox) seal(profileID, plaintext string) (cipher, nonce []byte, err
 	if b == nil || b.aead == nil {
 		return nil, nil, errSecretKeyUnavailable
 	}
-	if plaintext == "" || len(plaintext) > maxProviderSecretBytes || strings.ContainsAny(plaintext, "\r\n\x00") {
+	if plaintext == "" || len(plaintext) > maxProviderSecretBytes || strings.ContainsAny(plaintext, "\r\n\x00") || !utf8.ValidString(plaintext) {
 		return nil, nil, errSecretValueInvalid
 	}
 	nonce = make([]byte, b.aead.NonceSize())
@@ -72,6 +73,9 @@ func (b *secretBox) open(profileID string, cipher, nonce []byte, version int) (s
 		return "", errSecretUnreadable
 	}
 	if b == nil || b.aead == nil {
+		return "", errSecretUnreadable
+	}
+	if len(nonce) != b.aead.NonceSize() {
 		return "", errSecretUnreadable
 	}
 	plaintext, err := b.aead.Open(nil, nonce, cipher, providerSecretAAD(profileID))

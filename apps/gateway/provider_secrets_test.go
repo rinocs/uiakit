@@ -60,7 +60,7 @@ func TestSecretBoxConfiguration(t *testing.T) {
 
 func TestSecretBoxRejectsOutOfContractValues(t *testing.T) {
 	box := testBox(t)
-	for _, value := range []string{"", "line\nbreak", "carriage\rreturn", "nul\x00byte", string(make([]byte, 4097))} {
+	for _, value := range []string{"", "line\nbreak", "carriage\rreturn", "nul\x00byte", string([]byte{0xff}), string(make([]byte, 4097))} {
 		if _, _, err := box.seal("openai", value); !errors.Is(err, errSecretValueInvalid) {
 			t.Fatalf("value %.20q: %v", value, err)
 		}
@@ -75,5 +75,18 @@ func TestSecretBoxRejectsOutOfContractValues(t *testing.T) {
 	}
 	if bytes.Equal(nonce, secondNonce) || bytes.Equal(cipher, second) {
 		t.Fatal("nonce reuse")
+	}
+}
+
+func TestSecretBoxRejectsMalformedNonce(t *testing.T) {
+	box := testBox(t)
+	cipher, _, err := box.seal("openai", "value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, nonce := range [][]byte{make([]byte, 11), make([]byte, 13)} {
+		if _, err := box.open("openai", cipher, nonce, providerSecretKeyVersion); !errors.Is(err, errSecretUnreadable) {
+			t.Fatalf("nonce len=%d: %v", len(nonce), err)
+		}
 	}
 }
