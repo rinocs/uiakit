@@ -49,8 +49,9 @@ not in the SDK. Discovery occurs only from instances passed by the host; the man
 apply namespace/capability, atomic logging, config validation,
 enable/disable, lease and administrative surface. Imports remain prohibited
 arbitrary from manifest, hot reload and code installation via API. The profile
-BasicAgent continues to reject non-empty assistant.skills as long as it is missing
-integration. A valid manifest does not declare an active plugin.
+Both agent profiles reject non-empty assistant.skills because public skill selection
+is not integrated yet. Isolated tools can execute through the host executor, but
+the model loop currently selects only builtin/HTTP tools. A valid manifest does not declare an active plugin.
 
 Lifecycle, reconciliation and verification matrix: [runtime-lifecycle.md](runtime-lifecycle.md).
 Public API, revisions and limits: [plugins.md](plugins.md).

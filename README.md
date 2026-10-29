@@ -72,24 +72,7 @@ Browser / SDK / Laravel
 ### 1. Create local secrets
 
 ```bash
-cp .env.example .env
-python3 - <<'PY'
-import hashlib, secrets
-from pathlib import Path
-
-path = Path('.env')
-text = path.read_text()
-key = secrets.token_hex(32)
-for name, value in {
-    'POSTGRES_PASSWORD': secrets.token_hex(32),
-    'INTERNAL_API_KEY': secrets.token_hex(32),
-    'UAI_API_KEY_SHA256': hashlib.sha256(key.encode()).hexdigest(),
-}.items():
-    text = text.replace(name + '=\n', name + '=' + value + '\n')
-path.write_text(text)
-path.chmod(0o600)
-print('Admin API key (store it in your secret manager):', key)
-PY
+python3 scripts/bootstrap.py
 ```
 
 The admin key is returned only here; the `.env` file stores its SHA-256 digest.
@@ -267,11 +250,27 @@ docs/             guides, reference, ADRs, plans and acceptance report
 tests/            unit, contract, security, performance and E2E suites
 ```
 
+## Supported feature limits
+
+The model-driven agent loop currently executes read-only builtin/HTTP tools.
+Approvals and durable write execution exist separately; automatic approval/resume
+is not a complete agent workflow. Skills and semantic memory are not selectable;
+MCP is not implemented. Plugins require host approval and installation at build
+time; there is no ZIP marketplace or hot reload. Only one gateway/runtime pair
+per database is supported. These limits also apply to the release candidate.
+
 ## License and release status
 
-The project is proprietary (`LicenseRef-Proprietary`). Third-party licenses are
-listed in the generated SBOM and `THIRD_PARTY_NOTICES.md`; those notices do not
-grant a license to this repository. Model weights have separate licenses.
+First-party code, SDKs and examples are licensed under **[GPL-3.0-only](LICENSE)**.
+Commercial use is allowed; redistribution of covered derivatives must satisfy the
+GPL, including corresponding source. Calling the HTTP API from an independent
+application does not automatically license that application under GPL; incorporating
+our SDK code can create different obligations. See [licensing](docs/licensing.md).
+Dependencies and model weights retain their own licenses. Hosting, inference and
+managed support may cost money even though the source is free.
+
+Contributions: [CONTRIBUTING.md](CONTRIBUTING.md). Private vulnerability reports:
+[SECURITY.md](SECURITY.md).
 
 The 0.1.0 release candidate is prepared locally in `release/` and is **not
 published**. Registry pushes, npm/Composer publishing, signing and public

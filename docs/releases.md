@@ -68,8 +68,9 @@ the images and sign the digests with the chosen registry.
   SBOM is machine-readable evidence. Model weight licenses are not
   in the software SBOM: they must be verified separately before distributing a
   model.
-- The project is proprietary (`LicenseRef-Proprietary`): notices are not
-  grant licenses to the project's code.
+- First-party code is GPL-3.0-only; dependencies keep their licenses. Include
+  LICENSE, source/build instructions and required third-party notices in distributions.
+  See [licensing](licensing.md) for SDK and corresponding-source obligations.
 
 ## Contract compatibility
 
@@ -92,3 +93,15 @@ requires a separate phase, with registry credentials and review of
 licenses/vulnerabilities. For upgrade, rollback and two instances see
 [upgrades.md](upgrades.md) and [deployment.md](deployment.md); for the final gate e
 the release candidate see M6-09.
+## Reviewed source exports
+
+Release stages require a clean tracked Git checkout. Source archives export the
+reviewed commit with `git archive`; ignored/untracked local state is never copied.
+Sensitive tracked paths, symlinks and submodules fail closed. Every stage binds
+its output directory to the same commit; old unverified output is rejected. Use
+a new empty candidate directory for each commit rather than reusing old bundles.
+Never package a development directory or upload previous local archives blindly.
+
+The `.release-commit` marker and manifest identify the candidate. Run Gitleaks
+against history, the tracked source checkout and extracted source artifacts with
+redaction enabled. A passing metadata/license check alone is not a secret scan.

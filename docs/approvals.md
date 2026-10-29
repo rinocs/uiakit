@@ -53,9 +53,10 @@ The decision uses a transaction with approval and run locks:
   with run, correlation, topic digest, tool/version and outcome
   ([audit.md](audit.md)).
 
-The run does not restart before the decision has been committed. The recovery of
-loop and atomic consumption of approval after effect are integrated into
-M4-06/M4-05; M4-04 provides binding, persistence and decision contract.
+Decisions are committed before a run can proceed. The gateway updates run state,
+but the read-only model loop does not yet persist a pending mutating tool call
+and resume it automatically. Atomic approval consumption and durable effects are
+implemented separately; a run-state transition alone is not proof of agent resumption.
 
 Migration: `apps/gateway/migrations/011_approvals.sql`.
 Runtime tests: `apps/runtime/tests/test_approvals.py`; gateway tests:

@@ -12,6 +12,9 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'scripts'))
+from release_paths import forbidden_release_path
+from release import validate_image_revisions
 SEMVER = re.compile(r'^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$')
 REQUIRED_LOCKS = [
     'apps/gateway/go.sum',
@@ -159,23 +162,23 @@ def scan_archive(relative, path):
     if zipfile.is_zipfile(path):
         with zipfile.ZipFile(path) as archive:
             for member in archive.infolist():
+                if forbidden_release_path(member.filename):
+                    fail(f'forbidden file in {relative}: {member.filename}')
                 if member.file_size > 5 * 1024 * 1024:
                     continue
-                if member.filename.endswith(('.env', '.pem', '.key')):
-                    fail(f'forbidden file in {relative}: {member.filename}')
                 secret_free(f'{relative}:{member.filename}', archive.read(member))
         return
     if tarfile.is_tarfile(path):
         with tarfile.open(path) as archive:
             for member in archive.getmembers():
+                if forbidden_release_path(member.name):
+                    fail(f'forbidden file in {relative}: {member.name}')
                 if not member.isfile() or member.size > 5 * 1024 * 1024:
                     continue
-                if member.name.endswith(('.env', '.pem', '.key')):
-                    fail(f'forbidden file in {relative}: {member.name}')
                 extracted = archive.extractfile(member)
                 secret_free(f'{relative}:{member.name}', extracted.read() if extracted else b'')
         return
-    if path.suffix in ('.env', '.pem', '.key'):
+    if forbidden_release_path(relative):
         fail(f'forbidden release file: {relative}')
     secret_free(relative, path.read_bytes())
 
@@ -201,6 +204,7 @@ def check_artifacts(root):
     if not list((root / 'packages').glob('*')):
         fail('no SDK/plugin packages were prepared')
     images = json.loads((root / 'images.json').read_text())
+    validate_image_revisions(images, manifest.get('commit'))
     if not images:
         fail('no images were recorded')
     for entry in images:

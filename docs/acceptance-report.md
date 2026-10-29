@@ -83,3 +83,29 @@ Docker gates remain green.
   performance must be verified in the chosen deployment.
 - Base images are pinned by tag; the digests/hashes of the produced artifacts
   are registered, but a registry/cosign signature has not been performed.
+
+## GPL release preparation — 2026-10-29
+
+First-party licensing is GPL-3.0-only, including SDKs/examples and independently
+packaged license texts. Release sources, SDK builds and image build contexts now
+come from a verified clean Git commit. Bootstrap configuration is created once
+with mode 0600; credentials in an existing installation are never overwritten.
+
+Fresh local checks passed: full `make test`, `make build-packages`, strict MkDocs,
+25 console browser tests, `make e2e`, `make e2e-upgrade` (schema 14→16, data preserved,
+graceful shutdown and newer-schema refusal), and `make e2e-restore` (query/replay/
+reindex after restore). Runtime results: 356 passed, 3 optional real-service tests
+skipped; worker: 10 passed. The release regression suite was subsequently extended
+to 26 passing tests for safe exports, GPL, setup and final review fixes.
+
+Gitleaks v8.24.2 is pinned by OCI digest. All-ref history scanning passed after
+reviewing one false positive: a synthetic E2E Idempotency-Key, excluded by exact
+historical fingerprint only. A fresh independent review found two Important
+release-provenance issues; tests reproduced them before corrections. Internal
+stage markers are not distributed/checksummed, stale/missing package stages are
+rejected, and image revision/license labels must match the candidate.
+
+This record covers the development checkout. Final clean-commit artifacts must
+be checked separately, including packaged licenses and source obligations.
+No GitHub visibility change, release upload, image push or SDK publication has
+been performed. See the [release plan](superpowers/plans/2026-10-29-github-release-and-capabilities.md).

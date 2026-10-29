@@ -123,6 +123,8 @@ nav:
       - Releases and packaging: releases.md
       - Dependencies: dependencies.md
   - Project:
+      - Licensing: licensing.md
+      - GitHub readiness and competitors: open-source-readiness.md
       - Acceptance report: acceptance-report.md
       - Roadmap: TASKS.md
       - Progress log: progress.md
@@ -146,6 +148,7 @@ nav:
           - 0012 Deployment, upgrades and recovery: adr/0012-deployment-upgrades-and-recovery.md
           - 0013 Assistant version snapshots: adr/0013-assistant-version-snapshots.md
       - Implementation plans:
+          - GPL GitHub release and capabilities: superpowers/plans/2026-10-29-github-release-and-capabilities.md
           - Functional core: superpowers/plans/2026-10-22-functional-core.md
           - Milestone 1 closeout: superpowers/plans/2026-10-22-milestone-1-functional-core-closeout.md
           - Milestone 2 extensibility: superpowers/plans/2026-10-22-milestone-2-extensibility.md

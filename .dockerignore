@@ -3,6 +3,11 @@
 .dockerignore
 .env
 .env.*
+.bootstrap-admin-key
+.aws
+.codex
+.agents
+.worktrees
 
 **/.venv
 **/__pycache__

@@ -82,6 +82,11 @@ implementation plans and the acceptance report.
 
 ## Architecture and decisions
 
+- [Licensing and redistribution](licensing.md) — GPLv3, SDK boundaries and source obligations.
+- [GitHub release readiness and competitors](open-source-readiness.md) — GPL
+  proposal, publication blockers, market comparison and implementation priorities.
+- [GPL release and capability plan](superpowers/plans/2026-10-29-github-release-and-capabilities.md) —
+  staged tasks and release acceptance gates.
 - [ADR index](adr/README.md) — architecture decision records.
 - [Project specification](project-spec.md) — original product spec.
 - [Implementation progress](progress.md) — chronological implementation log.

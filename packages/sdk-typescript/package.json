@@ -2,7 +2,7 @@
   "name": "@universal-ai-kit/sdk",
   "version": "0.1.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-only",
   "description": "Typed TypeScript client for the Universal AI Kit public API",
   "type": "module",
   "engines": {

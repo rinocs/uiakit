@@ -2,7 +2,7 @@
   "name": "universal-ai-kit/sdk-php",
   "description": "Server-side PHP client for the Universal AI Kit public API",
   "type": "library",
-  "license": "proprietary",
+  "license": "GPL-3.0-only",
   "require": {
     "php": ">=8.2",
     "ext-curl": "*",

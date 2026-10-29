@@ -84,16 +84,20 @@ The gateway applies a conservative input budget in bytes, the runtime in charact
 
 The public stream includes X-Run-ID and X-Assistant-Version. Retry with the same
 Idempotency-Key rereads snapshots and original events, even if the assistant has been
-updated in the meantime. A new turn uses the current version.## Fields and future activations
+updated in the meantime. A new turn uses the current version.
+
+## Supported configuration fields
 
 The configuration includes descriptions, directives, tools, skills,
 knowledge_base_ids, memory, limits and policy. `directives` accepts registered names
 in the trusted runtime, validate before saving the version: see
 [directives contract](directives.md). The five built-in guards remain active
-even with empty directives. Other extension lists remain empty,
-semantic memory remains false and require_tool_approval remains true.
-Structured output, tool, skill and RAG cannot be activated until their respective ones are missing
-task: the server replies 422, without pretending to have applied the configuration.
+even with empty directives. Registered tools and knowledge-base associations are
+supported; RAG retrieval requires the corresponding directive and active index.
+Structured output requires a capable provider/model and a valid JSON Schema.
+The model-driven tool loop currently supports read-only builtin/HTTP tools.
+Skills remain empty, semantic memory remains false and require_tool_approval
+remains true. Unsupported selections are rejected rather than silently ignored.
 
 `memory.conversation=false` omits history from the model input of new runs. Le
 interactions remain persistent and visible in the API history for audits; this flag

@@ -10,9 +10,11 @@ ARG REVISION=unknown
 LABEL org.opencontainers.image.title="Universal AI Kit gateway" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
-      org.opencontainers.image.licenses="Proprietary"
+      org.opencontainers.image.licenses="GPL-3.0-only"
 RUN apk add --no-cache ca-certificates && adduser -D -u 10001 uai
 COPY --from=build /gateway /usr/local/bin/gateway
 USER uai
 EXPOSE 8080
 ENTRYPOINT ["gateway"]
+
+COPY LICENSE /usr/share/licenses/universal-ai-kit/LICENSE

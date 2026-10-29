@@ -3,7 +3,7 @@
 **Status:** proposed, awaiting approval.
 **Date:** 2026-10-27.
 **Supersedes:** the "provider secrets via references only" clause of
-[ADR 0003](../adr/0003-authorization-and-secrets.md) for provider credentials
+[ADR 0003](../../adr/0003-authorization-and-secrets.md) for provider credentials
 (a new ADR 0014 records the replacement; ADR 0003 keeps its history).
 
 ## 1. Decision summary
