@@ -183,7 +183,7 @@ def test_synthetic_initial_state_is_safe():
 
 def test_discovery_rejects_oversized_provider_response():
     def handler(request):
-        return httpx.Response(200, content=b'x' * (512 * 1024 + 1))
+        return httpx.Response(200, content=b'x' * (4 * 1024 * 1024 + 1))
 
     app = create_app('internal-secret', Provider(),
                      discovery_transport=httpx.MockTransport(handler))
@@ -194,3 +194,21 @@ def test_discovery_rejects_oversized_provider_response():
     })
     assert response.status_code == 422
     assert 'provider_models_too_large' in response.text
+
+
+def test_discovery_accepts_large_catalog_with_provider_metadata():
+    def handler(request):
+        return httpx.Response(200, json={'data': [
+            {'id': 'liquid/lfm-2.5-24b-a2b', 'description': 'x' * (1024 * 1024)},
+            {'id': 'openai/gpt-4o-mini'},
+        ]})
+
+    app = create_app('internal-secret', Provider(),
+                     discovery_transport=httpx.MockTransport(handler))
+    response = send(app, '/internal/v1/provider/models', {
+        'provider': 'openai-compatible',
+        'base_url': 'https://openrouter.ai/api/v1',
+        'api_key_ref': '',
+    })
+    assert response.status_code == 200
+    assert response.json() == {'models': ['liquid/lfm-2.5-24b-a2b', 'openai/gpt-4o-mini']}

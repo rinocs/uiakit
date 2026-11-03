@@ -29,7 +29,8 @@ log = logging.getLogger('uai.runtime.provider')
 ProviderKind = Literal['openai-compatible', 'ollama']
 ExtraCapability = Literal['tool_calling', 'structured_output']
 _SECRET_REF = re.compile(r'^(MODEL_API_KEY|PROVIDER_API_KEY_[A-Z0-9_]{1,63})$')
-_MAX_DISCOVERY_BYTES = 512 * 1024
+# Aggregator catalogs include descriptions and pricing alongside model IDs.
+_MAX_DISCOVERY_BYTES = 4 * 1024 * 1024
 _MAX_DISCOVERY_MODELS = 500
 
 # Only references owned by the provider integration may be resolved here. A

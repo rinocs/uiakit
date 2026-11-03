@@ -10,6 +10,26 @@ from uai_runtime.app import create_app
 from uai_runtime.provider import OpenAIProvider
 
 
+def test_provider_rejects_tool_calls_after_finish():
+    from uai_core.providers import ProviderError
+    from uai_runtime.models import RunRequest
+
+    body = (
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"late",'
+        '"function":{"name":"unexpected","arguments":"{}"}}]}}]}\n\n'
+        'data: [DONE]\n\n'
+    )
+
+    async def consume():
+        provider = OpenAIProvider('http://provider/v1', '', transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, text=body)))
+        return [chunk async for chunk in provider.stream(RunRequest(**request_body()))]
+
+    with pytest.raises(ProviderError):
+        asyncio.run(consume())
+
+
 def request_body():
     return dict(run_id=str(uuid4()), correlation_id=str(uuid4()), model='test',
                 system_prompt='Helpful', messages=[dict(role='user', content='Ciao')])
@@ -82,6 +102,32 @@ def test_output_limit():
     with client(max_output_chars=2) as c:
         r = c.post('/internal/v1/runs', json=request_body(), headers={'Authorization': 'Bearer internal-secret'})
     assert events(r)[-1]['payload']['code'] == 'output_limit'
+
+
+@pytest.mark.parametrize('trailing_content', ['', 'unexpected'])
+def test_openrouter_usage_event_after_stop(trailing_content):
+    usage_event = json.dumps({
+        'choices': [{'delta': {'content': trailing_content, 'role': 'assistant'},
+                     'finish_reason': 'stop'}],
+        'usage': {'prompt_tokens': 4, 'completion_tokens': 2, 'total_tokens': 6},
+    })
+    text = (
+        'data: {"choices":[{"delta":{"content":"Ciao"}}]}\n\n'
+        'data: {"choices":[{"delta":{"content":""},"finish_reason":"stop"}]}\n\n'
+        f'data: {usage_event}\n\n'
+        'data: [DONE]\n\n'
+    )
+    with client(lambda r: httpx.Response(200, text=text)) as c:
+        response = c.post('/internal/v1/runs', json=request_body(),
+                          headers={'Authorization': 'Bearer internal-secret'})
+    result = events(response)
+    if trailing_content:
+        assert result[-1]['event_type'] == 'agent.failed'
+        assert not any(e['event_type'] == 'response.completed' for e in result)
+    else:
+        assert result[-1]['event_type'] == 'response.completed'
+        assert result[-1]['payload']['text'] == 'Ciao'
+        assert result[-1]['payload']['usage']['total_tokens'] == 6
 
 
 def test_timeout_is_terminal_failure():
