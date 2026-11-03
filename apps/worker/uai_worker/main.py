@@ -25,7 +25,7 @@ def _handle_stop(signum, frame):
     _stop = True
 
 
-def build_worker() -> JobWorker:
+def build_worker() -> tuple[JobWorker, IndexBuilder]:
     backend = os.environ.get('UAI_STORAGE_BACKEND', 'filesystem')
     if backend == 'filesystem':
         blob_store = filesystem_from_env()
@@ -59,8 +59,10 @@ def main() -> None:
     once = os.environ.get('UAI_WORKER_ONCE') == '1'
     while not _stop:
         worked = worker.run_once()
-        if not worked:
-            worked = indexer.run_once()
+        if _stop or (worked and once):
+            break
+        indexed = indexer.run_once()
+        worked = worked or indexed
         if not worked:
             if once:
                 break
