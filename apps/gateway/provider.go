@@ -352,6 +352,8 @@ func (s *server) updateProvider(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, "invalid_configuration")
 		return
 	}
+	s.configurationMu.Lock()
+	defer s.configurationMu.Unlock()
 	ctx := r.Context()
 	current, err := s.store.ProviderConfiguration(ctx)
 	var currentModels []ProviderModel
@@ -377,6 +379,20 @@ func (s *server) updateProvider(w http.ResponseWriter, r *http.Request) {
 	} else if modelID != "" {
 		problem(w, 409, "model_in_use")
 		return
+	}
+	assistants, err := s.store.Assistants(ctx)
+	if err != nil {
+		problem(w, 500, "store_error")
+		return
+	}
+	definitions := providerDefinitions(next)
+	for _, assistant := range assistants {
+		for _, model := range definitions {
+			if model.ID == assistant.Model && validateAssistantCapabilities(assistant, model) != nil {
+				problem(w, 409, "model_in_use")
+				return
+			}
+		}
 	}
 	next.Revision = expected + 1
 	status, data, err := s.runtimeProviderRequest(ctx, "POST", "/internal/v1/provider/validate",

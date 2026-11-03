@@ -139,6 +139,32 @@ func (s *memoryStore) Finish(_ context.Context, _ Run, events []Event, status st
 
 type roundTrip func(*http.Request) (*http.Response, error)
 
+func TestRunReportsUnsupportedModelCapabilities(t *testing.T) {
+	for _, code := range []string{"tool_calling_unsupported", "structured_output_unsupported", "private_diagnostic"} {
+		t.Run(code, func(t *testing.T) {
+			_, s := setup(t)
+			s.client.Transport = roundTrip(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 422, Header: http.Header{},
+					Body: io.NopCloser(strings.NewReader(`{"detail":"` + code + `"}`))}, nil
+			})
+			r := httptest.NewRequest("POST", "/v1/conversations/00000000-0000-4000-8000-000000000002/messages",
+				strings.NewReader(`{"content":"ciao"}`))
+			r.Header.Set("Authorization", "Bearer test-key")
+			r.Header.Set("Idempotency-Key", "unsupported-tools")
+			r.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, r)
+			status, expected := 422, code
+			if code == "private_diagnostic" {
+				status, expected = 502, "runtime_unavailable"
+			}
+			if w.Code != status || !strings.Contains(w.Body.String(), `"error":"`+expected+`"`) {
+				t.Fatalf("%d %s", w.Code, w.Body)
+			}
+		})
+	}
+}
+
 func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 func setup(t *testing.T) (*memoryStore, *server) {
 	t.Helper()

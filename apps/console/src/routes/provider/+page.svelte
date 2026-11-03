@@ -147,6 +147,13 @@
               <td>{model.context_window ?? '—'}</td>
               {#if data.canManage}
                 <td>
+                  {#if data.provider.provider === 'openai-compatible' && !model.capabilities.includes('tool_calling')}
+                    <form method="POST" action="?/enableToolCalling">
+                      <input type="hidden" name="revision" value={data.provider.revision} />
+                      <input type="hidden" name="model_id" value={model.id} />
+                      <button class="link" type="submit">Abilita tool calling</button>
+                    </form>
+                  {/if}
                   <form method="POST" action="?/removeModel">
                     <input type="hidden" name="revision" value={data.provider.revision} />
                     <input type="hidden" name="model_id" value={model.id} />

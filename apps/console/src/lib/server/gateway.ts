@@ -30,6 +30,12 @@ export function gatewayStatus(error: unknown): number | null {
 export function gatewayMessage(error: unknown): string {
   if (error && typeof error === 'object') {
     if ('status' in error && 'code' in error) {
+      if (error.code === 'tool_calling_unsupported') {
+        return 'Il modello non è abilitato al tool calling. Abilitalo nella pagina Provider oppure rimuovi i tool dall’assistente.';
+      }
+      if (error.code === 'structured_output_unsupported') {
+        return 'Il modello non supporta l’output strutturato. Aggiorna le capacità nella pagina Provider oppure rimuovi lo schema dall’assistente.';
+      }
       return `Gateway ${String(error.status)}: ${String(error.code)}`;
     }
     if ('message' in error && typeof error.message === 'string') {

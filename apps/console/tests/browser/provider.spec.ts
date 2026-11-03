@@ -29,6 +29,16 @@ test('admin configures the provider and manages the model catalog', async ({ pag
   await page.getByRole('button', { name: 'Aggiungi modello' }).click();
   await expect(page.getByRole('cell', { name: id, exact: true })).toBeVisible();
 
+  const addedRow = page.getByRole('row', { name: new RegExp(id) });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await addedRow.getByRole('button', { name: 'Abilita tool calling' }).scrollIntoViewIfNeeded();
+  await expect(addedRow.getByRole('button', { name: 'Abilita tool calling' })).toBeVisible();
+  await addedRow.getByRole('button', { name: 'Abilita tool calling' }).click();
+  await expect(addedRow).toContainText('tool_calling');
+  await expect(addedRow).toContainText('4096');
+  await expect(addedRow.getByRole('button', { name: 'Abilita tool calling' })).toHaveCount(0);
+  await page.setViewportSize({ width: 1280, height: 720 });
+
   await page.goto('/models');
   await expect(page.getByRole('cell', { name: id, exact: true })).toBeVisible();
 

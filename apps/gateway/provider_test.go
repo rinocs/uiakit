@@ -22,6 +22,11 @@ type providerAuthStore struct {
 	saveCalls     int
 	validateCalls int
 	applyCalls    int
+	assistants    []Assistant
+}
+
+func (s *providerAuthStore) Assistants(context.Context) ([]Assistant, error) {
+	return s.assistants, nil
 }
 
 func (s *providerAuthStore) ProviderConfiguration(context.Context) (ProviderConfiguration, error) {
@@ -276,6 +281,30 @@ func TestProviderUpdateBlocksModelInUse(t *testing.T) {
 	response := providerRequest(server, "PUT", "/v1/provider", body, `"2"`)
 	if response.Code != 409 || !strings.Contains(response.Body.String(), "model_in_use") {
 		t.Fatalf("status = %d body = %s", response.Code, response.Body.String())
+	}
+}
+
+func TestProviderUpdatePreservesRequiredCapabilities(t *testing.T) {
+	for _, capability := range []string{"tool_calling", "structured_output"} {
+		t.Run(capability, func(t *testing.T) {
+			store, server, _ := providerSetup(t)
+			a := defaultAssistant()
+			a.Model = "test"
+			if capability == "tool_calling" {
+				a.Tools = []string{"builtin.text_stats"}
+			} else {
+				a.StructuredOutput = json.RawMessage(`{"type":"object"}`)
+			}
+			store.assistants = []Assistant{a}
+			body := strings.Replace(validProviderUpdate(), `["tool_calling"]`, `[]`, 1)
+			response := providerRequest(server, "PUT", "/v1/provider", body, `"0"`)
+			if response.Code != 409 || !strings.Contains(response.Body.String(), "model_in_use") {
+				t.Fatalf("%d %s", response.Code, response.Body.String())
+			}
+			if store.saveCalls != 0 {
+				t.Fatal("incompatible provider was saved")
+			}
+		})
 	}
 }
 

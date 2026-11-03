@@ -9,7 +9,7 @@ import type { Actions, PageServerLoad } from './$types';
 
 const PROVIDER_MESSAGES: Record<string, string> = {
   model_in_use:
-    'Il modello è usato da almeno un assistente. Aggiorna quegli assistenti prima di rimuoverlo.',
+    'Il modello o le sue capacità sono usati da almeno un assistente. Aggiorna quegli assistenti prima di modificarli.',
   invalid_api_key_ref:
     'Riferimento secret non valido: usa MODEL_API_KEY oppure PROVIDER_API_KEY_*.',
   api_key_ref_not_supported: 'Ollama non usa alcun riferimento secret.',
@@ -117,6 +117,33 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 };
 
 export const actions: Actions = {
+  enableToolCalling: async ({ request, locals }) => {
+    if (!canManage(locals)) return denied();
+    const data = await request.formData();
+    const id = String(data.get('model_id') ?? '');
+    try {
+      const client = clientFor(locals.session!.apiKey);
+      const current = await client.provider.get();
+      const models = currentModels(current);
+      const model = models.find((model) => model.id === id);
+      if (current.provider !== 'openai-compatible' || !model) {
+        return fail(422, { error: 'Modello non valido per il tool calling.', discovered: null });
+      }
+      if (!model.capabilities.includes('tool_calling')) model.capabilities.push('tool_calling');
+      await client.provider.update({
+        provider: current.provider,
+        base_url: current.base_url,
+        api_key_ref: current.api_key_ref,
+        max_output_tokens: current.max_output_tokens,
+        models,
+      }, { ifMatch: expectedRevision(data) });
+    } catch (error) {
+      return fail(gatewayStatus(error) ?? 502, {
+        error: providerMessage(error), discovered: null,
+      });
+    }
+    throw redirect(303, '/provider?saved=1');
+  },
   save: async ({ request, locals }) => {
     if (!canManage(locals)) return denied();
     const data = await request.formData();
