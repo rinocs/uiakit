@@ -22,7 +22,8 @@ func (m ModelDefinition) supports(capability string) bool {
 	return slices.Contains(m.Capabilities, capability)
 }
 func (m ModelDefinition) validate() error {
-	if m.ID == "" || len(m.ID) > 200 || m.Provider != "openai-compatible" || len(m.Capabilities) == 0 {
+	if m.ID == "" || len(m.ID) > 200 ||
+		(m.Provider != "openai-compatible" && m.Provider != "ollama") || len(m.Capabilities) == 0 {
 		return ErrInvalidConfig
 	}
 	seen := map[string]bool{}
@@ -66,7 +67,7 @@ func loadRuntimeModels(ctx context.Context, c Config) ([]ModelDefinition, error)
 	if decoder.Decode(new(any)) != io.EOF {
 		return nil, ErrInvalidConfig
 	}
-	if len(models) != 1 || models[0].ID != c.Model {
+	if len(models) == 0 || len(models) > 50 {
 		return nil, ErrInvalidConfig
 	}
 	for _, m := range models {

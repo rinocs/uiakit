@@ -13,6 +13,9 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+var ErrToolCallingUnsupported = errors.New("tool_calling_unsupported")
+var ErrStructuredOutputUnsupported = errors.New("structured_output_unsupported")
+
 var ErrPreconditionFailed = errors.New("precondition_failed")
 var ErrInvalidConfig = errors.New("invalid_configuration")
 
@@ -137,16 +140,38 @@ func applyAssistantPatch(current Assistant, patch json.RawMessage) (Assistant, e
 	return next, nil
 }
 func (s *server) validateAssistantModel(ctx context.Context, a Assistant) error {
-	models, e := s.store.Models(ctx)
-	if e != nil {
+	var models []ModelDefinition
+	// Validate against the desired catalog even while runtime application is pending.
+	config, e := s.store.ProviderConfiguration(ctx)
+	if e == nil {
+		models = providerDefinitions(config)
+	} else if errors.Is(e, ErrNotFound) {
+		models, e = s.store.Models(ctx)
+		if e != nil {
+			return e
+		}
+	} else {
 		return e
 	}
 	for _, m := range models {
 		if m.ID == a.Model && m.supports("chat") && m.supports("streaming") {
+			if e := validateAssistantCapabilities(a, m); e != nil {
+				return e
+			}
 			return s.validateAssistantDirectives(ctx, a.Directives)
 		}
 	}
 	return ErrInvalidConfig
+}
+
+func validateAssistantCapabilities(a Assistant, model ModelDefinition) error {
+	if len(a.Tools) > 0 && !model.supports("tool_calling") {
+		return ErrToolCallingUnsupported
+	}
+	if len(a.StructuredOutput) > 0 && !model.supports("structured_output") {
+		return ErrStructuredOutputUnsupported
+	}
+	return nil
 }
 func etag(version int) string { return fmt.Sprintf(`"%d"`, version) }
 func (s *server) assistantRoutes(r chi.Router) {
@@ -191,6 +216,8 @@ func (s *server) assistantRoutes(r chi.Router) {
 		if !decode(w, r, &patch) {
 			return
 		}
+		s.configurationMu.RLock()
+		defer s.configurationMu.RUnlock()
 		current, e := s.store.Assistant(r.Context(), id)
 		if e != nil {
 			storeError(w, e)

@@ -11,11 +11,16 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from importlib import metadata
 from pathlib import Path
 
+from release_paths import forbidden_release_path
+
 ROOT = Path(__file__).resolve().parents[1]
+PROJECT_LICENSE = 'GPL-3.0-only'
 LOCKFILES = [
     'apps/runtime/requirements.txt',
     'apps/runtime/requirements-dev.txt',
@@ -93,10 +98,6 @@ FIRST_PARTY = [
     ('github.com/universal-ai-kit/sdk-go', 'library'),
     ('universal-ai-kit/sdk-php', 'library'),
 ]
-ARCHIVE_EXCLUDES = {
-    '.git', '.venv', '.svelte-kit', 'node_modules', 'vendor', '__pycache__',
-    '.pytest_cache', 'release', 'site', 'dist', 'build', '.agents', '.superpowers', 'data',
-}
 
 
 def version():
@@ -262,7 +263,7 @@ def all_components():
         purl = f'pkg:generic/{name}@{project_version}'
         components[purl] = {
             'type': component_type, 'name': name, 'version': project_version,
-            'purl': purl, 'licenses': [{'license': {'id': 'LicenseRef-Proprietary'}}],
+            'purl': purl, 'licenses': [{'license': {'id': PROJECT_LICENSE}}],
         }
     return [components[key] for key in sorted(components)]
 
@@ -276,16 +277,16 @@ def write_inventory(output):
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'component': {'type': 'application', 'name': 'universal-ai-kit',
                           'version': version(),
-                          'licenses': [{'license': {'id': 'LicenseRef-Proprietary'}}]},
+                          'licenses': [{'license': {'id': PROJECT_LICENSE}}]},
         },
         'components': components,
     }
     (output / 'sbom.cdx.json').write_text(json.dumps(sbom, indent=2, sort_keys=True) + '\n')
     lines = [
         '# Third-party notices', '',
-        'Generated from the locked dependency manifests. The project itself is',
-        'proprietary (`LicenseRef-Proprietary`); this file does not grant a license',
-        'to the project code. Review the upstream license text before redistribution.', '',
+        'Generated from the locked dependency manifests. First-party code is',
+        'licensed under GPL-3.0-only; see LICENSE. Dependencies retain their own',
+        'licenses. Review upstream notices and source obligations before redistribution.', '',
         '| Ecosystem | Component | Version | License |',
         '|---|---|---|---|',
     ]
@@ -302,77 +303,139 @@ def write_inventory(output):
 
 
 def source_archive(output):
+    commit = revision()
+    entries = subprocess.check_output(
+        ['git', 'ls-tree', '-rz', '--full-tree', commit], cwd=ROOT).split(b'\0')
+    for entry in filter(None, entries):
+        metadata, name = entry.split(b'\t', 1)
+        mode = metadata.split()[0]
+        if mode not in (b'100644', b'100755'):
+            raise SystemExit('release requires regular source files; symlink/submodule unsupported')
+        if forbidden_release_path(os.fsdecode(name)):
+            raise SystemExit('forbidden path in release commit: ' + os.fsdecode(name))
     output.mkdir(parents=True, exist_ok=True)
     target = output / f'universal-ai-kit-{version()}-src.tar.gz'
     prefix = f'universal-ai-kit-{version()}'
-    with tarfile.open(target, 'w:gz') as archive:
-        for path in sorted(ROOT.rglob('*')):
-            relative = path.relative_to(ROOT)
-            if any(part in ARCHIVE_EXCLUDES for part in relative.parts):
-                continue
-            if path.is_file() and path.suffix not in ('.pyc', '.pyo'):
-                if relative.as_posix() == 'apps/gateway/gateway':
-                    continue
-                archive.add(path, arcname=str(Path(prefix) / relative))
+    with tempfile.NamedTemporaryFile(dir=output, suffix='.tmp') as temporary:
+        subprocess.run(['git', 'archive', '--format=tar.gz', f'--prefix={prefix}/',
+                        commit], cwd=ROOT, stdout=temporary, check=True)
+        temporary.flush()
+        shutil.copyfile(temporary.name, target)
     return target
+
+
+@contextmanager
+def reviewed_source():
+    """Build only exported commit inputs, never untracked development files."""
+    with tempfile.TemporaryDirectory(prefix='uai-release-source-') as directory:
+        archive = source_archive(Path(directory))
+        with tarfile.open(archive) as source:
+            source.extractall(directory, filter='data')
+        yield Path(directory) / f'universal-ai-kit-{version()}'
 
 
 def prepare_packages(output):
     output = output.resolve()
-    output.mkdir(parents=True, exist_ok=True)
-    for package in NPM_PACKAGES:
-        run(['npm', 'pack', '--pack-destination', output], cwd=ROOT / package)
-    for package in PYTHON_PACKAGES:
-        run([sys.executable, '-m', 'pip', 'wheel', '--no-deps', '--no-build-isolation',
-             '--wheel-dir', output, '.'], cwd=ROOT / package)
-    run(['composer', 'archive', '--format=zip', '--dir', output,
-         '--file', f'sdk-php-{version()}'], cwd=ROOT / 'packages/sdk-php')
-    target = output / f'sdk-go-{version()}.tar.gz'
-    with tarfile.open(target, 'w:gz') as archive:
-        for path in sorted((ROOT / 'packages/sdk-go').rglob('*')):
-            if path.is_file() and path.suffix != '.pyc':
-                archive.add(path, arcname=str(Path(f'sdk-go-{version()}') /
-                                              path.relative_to(ROOT / 'packages/sdk-go')))
+    release_revision(output)
     source_archive(output)
+    with reviewed_source() as source:
+        for package in NPM_PACKAGES:
+            run(['npm', 'ci'], cwd=source / package)
+            run(['npm', 'run', 'build'], cwd=source / package)
+            run(['npm', 'pack', '--pack-destination', output], cwd=source / package)
+        for package in PYTHON_PACKAGES:
+            run([sys.executable, '-m', 'pip', 'wheel', '--no-deps', '--no-build-isolation',
+                 '--wheel-dir', output, '.'], cwd=source / package)
+        run(['composer', 'archive', '--format=zip', '--dir', output,
+             '--file', f'sdk-php-{version()}'], cwd=source / 'packages/sdk-php')
+    target = output / f'sdk-go-{version()}.tar.gz'
+    with target.open('wb') as archive:
+        subprocess.run(['git', 'archive', '--format=tar.gz',
+                        f'--prefix=sdk-go-{version()}/', f'{revision()}:packages/sdk-go'],
+                       cwd=ROOT, stdout=archive, check=True)
+    release_revision(output)
 
 
 def revision():
     try:
-        return subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
-                                       text=True, stderr=subprocess.DEVNULL).strip()
+        commit = subprocess.check_output(['git', 'rev-parse', '--verify', 'HEAD^{commit}'],
+                                         cwd=ROOT, text=True, stderr=subprocess.DEVNULL).strip()
+        dirty = subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'],
+                                        cwd=ROOT, text=True, stderr=subprocess.DEVNULL)
     except (OSError, subprocess.CalledProcessError):
-        return 'unknown'
+        raise SystemExit('release requires a clean Git checkout with a verified commit') from None
+    if dirty:
+        raise SystemExit('release requires a clean tracked Git checkout; commit reviewed changes first')
+    return commit
+
+
+def release_revision(output):
+    """Bind all stages to one reviewed commit and refuse unverified old artifacts."""
+    commit = revision()
+    marker = output / '.release-commit'
+    if marker.exists():
+        if marker.read_text().strip() != commit:
+            raise SystemExit('stale release output belongs to another commit; choose an empty directory')
+    else:
+        if output.exists() and any(output.iterdir()):
+            raise SystemExit('unverified release output; choose an empty directory')
+        output.mkdir(parents=True, exist_ok=True)
+        with marker.open('x') as handle:
+            handle.write(commit + '\n')
+    return commit
 
 
 def prepare_images(output):
     root = output.resolve()
-    root.mkdir(parents=True, exist_ok=True)
+    commit = release_revision(root)
     image_dir = root / 'images'
     image_dir.mkdir(parents=True, exist_ok=True)
-    project_version, commit = version(), revision()
+    project_version = version()
     images = []
-    for name, dockerfile in IMAGES:
-        tag = f'uai-{name}:{project_version}'
-        run(['docker', 'build', '-f', dockerfile,
-             '--build-arg', f'VERSION={project_version}',
-             '--build-arg', f'REVISION={commit}', '-t', tag, '.'])
-        archive = image_dir / f'uai-{name}-{project_version}.tar'
-        run(['docker', 'save', '-o', archive, tag])
-        image_id = subprocess.check_output(
-            ['docker', 'inspect', '--format', '{{.Id}}', tag], cwd=ROOT, text=True).strip()
-        labels = json.loads(subprocess.check_output(
-            ['docker', 'inspect', '--format', '{{json .Config.Labels}}', tag],
-            cwd=ROOT, text=True))
-        images.append({'name': f'uai-{name}', 'tag': project_version,
-                       'image_id': image_id, 'tar': archive.name,
-                       'tar_sha256': sha256(archive), 'labels': labels})
+    with reviewed_source() as source:
+        for name, dockerfile in IMAGES:
+            tag = f'uai-{name}:{project_version}'
+            run(['docker', 'build', '-f', dockerfile,
+                 '--build-arg', f'VERSION={project_version}',
+                 '--build-arg', f'REVISION={commit}', '-t', tag, '.'], cwd=source)
+            archive = image_dir / f'uai-{name}-{project_version}.tar'
+            run(['docker', 'save', '-o', archive, tag])
+            image_id = subprocess.check_output(
+                ['docker', 'inspect', '--format', '{{.Id}}', tag], cwd=ROOT, text=True).strip()
+            labels = json.loads(subprocess.check_output(
+                ['docker', 'inspect', '--format', '{{json .Config.Labels}}', tag],
+                cwd=ROOT, text=True))
+            images.append({'name': f'uai-{name}', 'tag': project_version,
+                           'image_id': image_id, 'tar': archive.name,
+                           'tar_sha256': sha256(archive), 'labels': labels})
     (output / 'images.json').write_text(json.dumps(images, indent=2, sort_keys=True) + '\n')
     print(f'images: {len(images)} built and saved', file=sys.stderr)
 
 
+def validate_image_revisions(images, commit):
+    if not isinstance(commit, str) or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', commit):
+        raise SystemExit('release candidate is missing a verified commit identity')
+    if not isinstance(images, list) or not images:
+        raise SystemExit('release images are missing revision evidence')
+    for image in images:
+        labels = image.get('labels', {})
+        if labels.get('org.opencontainers.image.revision') != commit:
+            raise SystemExit('release image revision does not match candidate commit')
+        if labels.get('org.opencontainers.image.licenses') != PROJECT_LICENSE:
+            raise SystemExit('release image license does not match project license')
+
+
 def prepare_manifest(output):
     output = output.resolve()
-    output.mkdir(parents=True, exist_ok=True)
+    commit = release_revision(output)
+    stage = output / 'packages/.release-commit'
+    if not stage.is_file():
+        raise SystemExit('release packages stage is missing its commit marker')
+    for marker in output.rglob('.release-commit'):
+        if marker.read_text().strip() != commit:
+            raise SystemExit('release stage commit does not match candidate commit')
+    images = json.loads((output / 'images.json').read_text())
+    validate_image_revisions(images, commit)
     for relative in ('RELEASE_NOTES.md', 'docs/acceptance-report.md'):
         source = ROOT / relative
         if source.is_file():
@@ -380,22 +443,21 @@ def prepare_manifest(output):
     contract = ROOT / 'packages/api-contract/public.openapi.json'
     files = {}
     for path in sorted(output.rglob('*')):
-        if path.is_file() and path.name not in ('manifest.json', 'SHA256SUMS'):
+        if path.is_file() and path.name not in ('manifest.json', 'SHA256SUMS', '.release-commit'):
             files[str(path.relative_to(output))] = sha256(path)
     manifest = {
         'version': version(),
-        'commit': revision(),
+        'commit': commit,
         'generated_at': datetime.now(timezone.utc).isoformat(),
         'contract_sha256': sha256(contract),
         'lockfiles': {relative: sha256(ROOT / relative) for relative in LOCKFILES},
         'files': files,
-        'images': json.loads((output / 'images.json').read_text())
-        if (output / 'images.json').is_file() else [],
+        'images': images,
     }
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
     sums = []
     for path in sorted(output.rglob('*')):
-        if path.is_file() and path.name != 'SHA256SUMS':
+        if path.is_file() and path.name not in ('SHA256SUMS', '.release-commit'):
             sums.append(f'{sha256(path)}  {path.relative_to(output)}')
     (output / 'SHA256SUMS').write_text('\n'.join(sums) + '\n')
 
@@ -409,6 +471,7 @@ def main():
     args = parser.parse_args()
     output = Path(args.output)
     if args.command == 'inventory':
+        release_revision(output)
         write_inventory(output)
     elif args.command == 'packages':
         prepare_packages(output)

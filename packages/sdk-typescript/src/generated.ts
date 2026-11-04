@@ -299,7 +299,7 @@ export interface MessageInput {
 
 export interface ModelDefinition {
   id: string;
-  provider: "openai-compatible";
+  provider: "openai-compatible" | "ollama";
   capabilities: Array<"chat" | "streaming" | "tool_calling" | "structured_output" | "embeddings" | "reranking" | "vision">;
   max_output_tokens: number | null;
   context_window: number | null;
@@ -364,6 +364,42 @@ export interface PrincipalInfo {
   principal_id: string;
   role: "reader" | "operator" | "admin" | "widget";
   scopes: Array<string>;
+}
+
+export interface ProviderConfiguration {
+  revision: number;
+  managed: boolean;
+  applied: boolean;
+  provider: "openai-compatible" | "ollama";
+  base_url: string;
+  api_key_ref: string;
+  api_key_configured: boolean;
+  max_output_tokens: number;
+  models: Array<ModelDefinition>;
+}
+
+export interface ProviderDiscovery {
+  provider: "openai-compatible" | "ollama";
+  base_url: string;
+  api_key_ref: string;
+}
+
+export interface ProviderModel {
+  id: string;
+  capabilities: Array<"tool_calling" | "structured_output">;
+  context_window: number | null;
+}
+
+export interface ProviderModelList {
+  models: Array<string>;
+}
+
+export interface ProviderUpdate {
+  provider: "openai-compatible" | "ollama";
+  base_url: string;
+  api_key_ref: string;
+  max_output_tokens: number;
+  models: Array<ProviderModel>;
 }
 
 export interface RuntimeEvent {

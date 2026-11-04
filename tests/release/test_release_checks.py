@@ -15,7 +15,8 @@ class ReleaseChecksTest(unittest.TestCase):
         self.assertTrue(expression_allowed('MIT'))
         self.assertTrue(expression_allowed('MIT OR Apache-2.0'))
         self.assertFalse(expression_allowed('NOASSERTION'))
-        self.assertFalse(expression_allowed('GPL-3.0-only'))
+        self.assertTrue(expression_allowed('GPL-3.0-only'))
+        self.assertFalse(expression_allowed('LicenseRef-Proprietary'))
 
 
 if __name__ == '__main__':

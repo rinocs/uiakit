@@ -31,23 +31,7 @@ independent installations are supported; clustering on one database is not.
 ### 2.1 Create secrets
 
 ```bash
-cp .env.example .env
-python3 - <<'PY'
-import hashlib, secrets
-from pathlib import Path
-path = Path('.env')
-text = path.read_text()
-key = secrets.token_hex(32)
-for name, value in {
-    'POSTGRES_PASSWORD': secrets.token_hex(32),
-    'INTERNAL_API_KEY': secrets.token_hex(32),
-    'UAI_API_KEY_SHA256': hashlib.sha256(key.encode()).hexdigest(),
-}.items():
-    text = text.replace(name + '=\n', name + '=' + value + '\n')
-path.write_text(text)
-path.chmod(0o600)
-print('Admin API key (store safely):', key)
-PY
+python3 scripts/bootstrap.py
 ```
 
 `UAI_API_KEY_SHA256` is a digest; the actual admin key is only printed once. Keep

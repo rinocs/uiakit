@@ -14,6 +14,14 @@ type versionStore struct {
 	memoryStore
 	assistant Assistant
 	versions  []Assistant
+	models    []ModelDefinition
+}
+
+func (s *versionStore) Models(ctx context.Context) ([]ModelDefinition, error) {
+	if s.models != nil {
+		return s.models, nil
+	}
+	return s.memoryStore.Models(ctx)
 }
 
 func (s *versionStore) Assistant(_ context.Context, id string) (Assistant, error) {
@@ -144,7 +152,9 @@ func TestModelsCannotBeReadWithoutScope(t *testing.T) {
 }
 
 func TestAssistantPatchAcceptsDeclaredTools(t *testing.T) {
-	_, s := versionSetup(t)
+	store, s := versionSetup(t)
+	store.models = []ModelDefinition{{ID: "test", Provider: "openai-compatible",
+		Capabilities: []string{"chat", "streaming", "tool_calling"}}}
 	req := httptest.NewRequest("PATCH", "/v1/assistants/00000000-0000-4000-8000-000000000001",
 		strings.NewReader(`{"tools":["builtin.text_stats"]}`))
 	req.Header.Set("Authorization", "Bearer test-key")
@@ -154,6 +164,23 @@ func TestAssistantPatchAcceptsDeclaredTools(t *testing.T) {
 	s.ServeHTTP(w, req)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"tools":["builtin.text_stats"]`) {
 		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+}
+
+func TestAssistantPatchRejectsToolsWithoutModelCapability(t *testing.T) {
+	store, s := versionSetup(t)
+	r := httptest.NewRequest("PATCH", "/v1/assistants/"+store.assistant.ID,
+		strings.NewReader(`{"tools":["builtin.text_stats"]}`))
+	r.Header.Set("Authorization", "Bearer test-key")
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("If-Match", `"1"`)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != 422 || !strings.Contains(w.Body.String(), `"error":"tool_calling_unsupported"`) {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	if store.assistant.Version != 1 || len(store.assistant.Tools) != 0 {
+		t.Fatal("invalid assistant was persisted")
 	}
 }
 
@@ -183,6 +210,8 @@ func TestAssistantPatchAcceptsExecutionBudgetsAndRejectsOutOfRange(t *testing.T)
 
 func TestAssistantPatchAcceptsJsonSchemaStructuredOutput(t *testing.T) {
 	store, s := versionSetup(t)
+	store.models = []ModelDefinition{{ID: "test", Provider: "openai-compatible",
+		Capabilities: []string{"chat", "streaming", "structured_output"}}}
 	path := "/v1/assistants/" + store.assistant.ID
 	patch := func(body, etag string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("PATCH", path, strings.NewReader(body))
@@ -201,5 +230,40 @@ func TestAssistantPatchAcceptsJsonSchemaStructuredOutput(t *testing.T) {
 	}
 	if w := patch(`{"structured_output":[]}`, `"2"`); w.Code != 422 {
 		t.Fatal(w.Code, w.Body)
+	}
+}
+
+func TestAssistantRejectsUnsupportedStructuredOutput(t *testing.T) {
+	store, s := versionSetup(t)
+	for _, method := range []string{"POST", "PATCH"} {
+		path := "/v1/assistants"
+		if method == "PATCH" {
+			path += "/" + store.assistant.ID
+		}
+		r := httptest.NewRequest(method, path, strings.NewReader(`{"name":"JSON","model":"test","structured_output":{"type":"object"}}`))
+		r.Header.Set("Authorization", "Bearer test-key")
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("If-Match", `"1"`)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		if w.Code != 422 || !strings.Contains(w.Body.String(), "structured_output_unsupported") {
+			t.Fatalf("%s: %d %s", method, w.Code, w.Body)
+		}
+	}
+	if store.assistant.Version != 1 {
+		t.Fatal("invalid configuration was persisted")
+	}
+}
+
+func TestAssistantValidationUsesDesiredProviderWhileApplicationPending(t *testing.T) {
+	store, s := versionSetup(t)
+	store.models = []ModelDefinition{{ID: "test", Provider: "openai-compatible",
+		Capabilities: []string{"chat", "streaming", "tool_calling"}}}
+	store.providerManaged = true
+	store.providerConfig = ProviderConfiguration{Provider: "openai-compatible", Models: []ProviderModel{{ID: "test"}}}
+	a := store.assistant
+	a.Tools = []string{"builtin.text_stats"}
+	if err := s.validateAssistantModel(context.Background(), a); err != ErrToolCallingUnsupported {
+		t.Fatalf("validation against pending catalog: %v", err)
 	}
 }

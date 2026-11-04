@@ -4,7 +4,7 @@ ARG REVISION=unknown
 LABEL org.opencontainers.image.title="Universal AI Kit worker" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
-      org.opencontainers.image.licenses="Proprietary"
+      org.opencontainers.image.licenses="GPL-3.0-only"
 WORKDIR /app
 COPY apps/runtime/requirements.txt ./
 COPY apps/worker/requirements.txt ./worker-requirements.txt
@@ -15,3 +15,5 @@ COPY apps/runtime/uai_runtime ./uai_runtime
 COPY apps/worker/uai_worker ./uai_worker
 USER uai
 CMD ["python", "-m", "uai_worker.main"]
+
+COPY LICENSE /usr/share/licenses/universal-ai-kit/LICENSE

@@ -3,6 +3,8 @@ requires = ["setuptools==84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 name = "uai-plugin-sdk"
 version = "0.1.0"
 description = "Trusted plugin and local skill contracts for Universal AI Kit"

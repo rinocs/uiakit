@@ -56,6 +56,9 @@ final class Operations
         'approveApproval' => ['method' => 'POST', 'path' => '/v1/approvals/{id}/approve'],
         'rejectApproval' => ['method' => 'POST', 'path' => '/v1/approvals/{id}/reject'],
         'listAuditEvents' => ['method' => 'GET', 'path' => '/v1/audit-events'],
+        'getProvider' => ['method' => 'GET', 'path' => '/v1/provider'],
+        'updateProvider' => ['method' => 'PUT', 'path' => '/v1/provider', 'ifMatch' => true],
+        'discoverProviderModels' => ['method' => 'POST', 'path' => '/v1/provider/models'],
         'createWidgetToken' => ['method' => 'POST', 'path' => '/v1/widget/tokens'],
         'revokeWidgetToken' => ['method' => 'DELETE', 'path' => '/v1/widget/tokens/{id}'],
     ];

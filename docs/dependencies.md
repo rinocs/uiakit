@@ -80,8 +80,8 @@ available, and attach reports to the bundle without publishing packages or image
 The images produced have `0.1.0` tag, OCI version/revision/license label,
 image ID and tar hash in `images.json`. SDK/plugin packages are prepared
 with `npm pack`, wheel, Composer archive and Go source, without `npm publish` or
-`composer publish`. The project is proprietary (`LicenseRef-Proprietary`); the
-notices do not grant licenses to the project's code. The model weights remain
+`composer publish`. First-party code is GPL-3.0-only; dependencies retain their own
+licenses and corresponding redistribution obligations. The model weights remain
 outside the software SBOM and require separate verification. Details in
 [releases.md](releases.md).
 

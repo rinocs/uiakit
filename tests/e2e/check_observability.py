@@ -46,7 +46,7 @@ conversation = json.loads(raw)['id']
 status, headers, stream = request(
     f'/v1/conversations/{conversation}/messages', method='POST',
     body={'content': 'Ciao osservabilità'},
-    headers={'traceparent': traceparent, 'Idempotency-Key': 'observability-e2e'},
+    headers={'traceparent': traceparent, 'Idempotency-Key': 'observability-e2e'},  # gitleaks:allow -- synthetic idempotency marker, not a credential
 )
 assert status == 200, (status, stream)
 assert headers.get('X-Trace-ID') == trace_id, (trace_id, headers.get('X-Trace-ID'))

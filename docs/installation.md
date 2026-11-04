@@ -28,7 +28,7 @@ gateway (and console) behind a TLS reverse proxy in production.
 ## 2. Get the project
 
 ```bash
-git clone <repository-url> universal-ai-kit
+git clone https://github.com/rinocs/uiakit.git universal-ai-kit
 cd universal-ai-kit
 ```
 
@@ -39,29 +39,7 @@ in `compose.yaml` (`0.1.0` by default).
 ## 3. Create `.env`
 
 ```bash
-cp .env.example .env
-```
-
-Generate the required secrets and the bootstrap admin key:
-
-```bash
-python3 - <<'PY'
-import hashlib, secrets
-from pathlib import Path
-
-path = Path('.env')
-text = path.read_text()
-key = secrets.token_hex(32)
-for name, value in {
-    'POSTGRES_PASSWORD': secrets.token_hex(32),
-    'INTERNAL_API_KEY': secrets.token_hex(32),
-    'UAI_API_KEY_SHA256': hashlib.sha256(key.encode()).hexdigest(),
-}.items():
-    text = text.replace(name + '=\n', name + '=' + value + '\n')
-path.write_text(text)
-path.chmod(0o600)
-print('Admin API key (store it now; it is shown once):', key)
-PY
+python3 scripts/bootstrap.py
 ```
 
 Rules:
@@ -69,12 +47,14 @@ Rules:
 - `POSTGRES_PASSWORD` and `INTERNAL_API_KEY` are hex secrets; the PostgreSQL URL
   is built from them.
 - `UAI_API_KEY_SHA256` is the SHA-256 of the admin key. The plaintext key is only
-  printed by the command above.
+  printed by the command above. The bootstrap also generates the RustFS credentials
+  required by Compose interpolation, even when the S3 profile is inactive.
 - Every secret supports a mounted-file variant: `POSTGRES_PASSWORD_FILE`,
   `INTERNAL_API_KEY_FILE`, `MODEL_API_KEY_FILE`, `EMBEDDING_API_KEY_FILE`,
   `UAI_S3_ACCESS_KEY_FILE`, and so on. Set either the value or the `_FILE`
   variant, never both.
-- Never commit `.env`.
+- Never commit `.env`. The bootstrap refuses an existing `.env`, including a symlink,
+  and never rotates existing credentials. Configure existing installations manually.
 
 ## 4. Configure the model
 
@@ -101,6 +81,12 @@ MODEL_NAME=llama3.2:3b
 OLLAMA_BASE_URL=http://ollama:11434
 UAI_EGRESS_ALLOW=ollama:11434
 ```
+
+The environment configuration bootstraps the runtime. After logging in, an
+administrator can change the provider kind, base URL, max output tokens and the
+model catalog from `/provider`. Secret values stay in the runtime environment or
+mounted files (`MODEL_API_KEY` or `PROVIDER_API_KEY_*`) and are referenced by name;
+the runtime egress allowlist still applies.
 
 The `full` profile also runs the worker and Qdrant. For RAG, keep the embedding
 identity consistent with the model actually pulled:

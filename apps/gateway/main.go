@@ -69,8 +69,17 @@ func main() {
 	if e != nil {
 		log.Fatal("invalid secret configuration")
 	}
+	secretKey, e := secretFromEnv("UAI_SECRET_KEY")
+	if e != nil {
+		log.Fatal("invalid secret configuration")
+	}
+	box, e := newSecretBox(secretKey)
+	if e != nil {
+		log.Fatal("invalid secret configuration")
+	}
 	c := Config{
 		APIKeyHash: apiKeyHash, InternalKey: internalKey,
+		SecretKey:  box,
 		RuntimeURL: os.Getenv("RUNTIME_URL"), Model: os.Getenv("MODEL_NAME"), RateLimit: rateLimit,
 		RateLimitPerPrincipal: perPrincipalLimit,
 		WidgetRateLimit:       widgetRateLimit, WidgetOrigins: widgetOrigins,
@@ -114,6 +123,12 @@ func main() {
 
 	handler := NewServer(s, c)
 	defer handler.telemetry.Shutdown(context.Background())
+	providerCtx, providerCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	providerErr := handler.applySavedProvider(providerCtx)
+	providerCancel()
+	if providerErr != nil {
+		log.Fatal("provider configuration initialization failed")
+	}
 	pluginCtx, pluginCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	pluginConfig, pluginErr := s.PluginConfiguration(pluginCtx)
 	if pluginErr == nil {

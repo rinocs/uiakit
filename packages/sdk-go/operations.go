@@ -53,6 +53,9 @@ var Operations = map[string]Operation{
 	"approveApproval":            {Method: "POST", Path: "/v1/approvals/{id}/approve"},
 	"rejectApproval":             {Method: "POST", Path: "/v1/approvals/{id}/reject"},
 	"listAuditEvents":            {Method: "GET", Path: "/v1/audit-events"},
+	"getProvider":                {Method: "GET", Path: "/v1/provider"},
+	"updateProvider":             {Method: "PUT", Path: "/v1/provider", RequiresIfMatch: true},
+	"discoverProviderModels":     {Method: "POST", Path: "/v1/provider/models"},
 	"createWidgetToken":          {Method: "POST", Path: "/v1/widget/tokens"},
 	"revokeWidgetToken":          {Method: "DELETE", Path: "/v1/widget/tokens/{id}"},
 }

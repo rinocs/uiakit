@@ -87,9 +87,11 @@ Docker/SQL evidence remains open; no release or deployment performed.
   the original snapshot, not the most recent configuration.
 - PATCH with If-Match/ETag avoids lost updates. Ownership and scopes applied
   also single GET and reading versions.
-- Ruling: the runtime is the owner of the effective capabilities of its adapter; the gateway
-  imports metadata without secrets into PostgreSQL at startup. Cost: one check
-  additional authenticated at startup; no public URL/key to configure provider.
+- Ruling: the runtime owns the effective capabilities of its adapter; the gateway
+  imports metadata without secrets. The admin API can configure provider kind, base
+  URL, model catalog and a secret reference after runtime validation and egress
+  checks; secret values are never stored or returned. Cost: one additional
+  authenticated call per provider change, with runtime pull reconciliation.
 - Extension fields present in the configuration but not yet implemented
   are rejected if enabled: do not ignore required tool/skill/RAG/structured output.
 - [x] Test red versions, conditional PATCH and capability.

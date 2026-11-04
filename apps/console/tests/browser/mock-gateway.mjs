@@ -209,7 +209,60 @@ const auditEvents = [
     created_at: '2026-10-22T00:00:01Z',
     details: { tool_id: 'example.write', decision: 'approved', authorization: '[redacted]', api_key: '[redacted]' },
   },
+  {
+    id: '00000000-0000-4000-8000-000000000202',
+    actor_principal_id: 'admin-1',
+    action: 'credential.created',
+    target_id: '00000000-0000-4000-8000-0000000000c1',
+    target_type: 'credential',
+    outcome: 'success',
+    created_at: '2026-10-22T00:00:02Z',
+    details: { role: 'reader', scopes: ['assistants:read', 'models:read'], api_key: '[redacted]' },
+  },
 ];
+const credentials = [
+  {
+    id: '00000000-0000-4000-8000-0000000000c1',
+    principal_id: 'ci-runner',
+    role: 'reader',
+    scopes: ['assistants:read', 'models:read'],
+    expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    revoked_at: null,
+    created_at: '2026-10-01T00:00:00Z',
+  },
+];
+let providerConfig = {
+  revision: 1,
+  provider: 'openai-compatible',
+  base_url: 'http://provider.local/v1',
+  api_key_ref: 'MODEL_API_KEY',
+  max_output_tokens: 1024,
+  models: [{ id: 'test-model', capabilities: [], context_window: 8192 }],
+};
+
+function providerDefinitions() {
+  return providerConfig.models.map((model) => ({
+    id: model.id,
+    provider: providerConfig.provider,
+    capabilities: ['chat', 'streaming', ...model.capabilities].sort(),
+    max_output_tokens: providerConfig.max_output_tokens,
+    context_window: model.context_window,
+  }));
+}
+
+function providerView() {
+  return {
+    revision: providerConfig.revision,
+    managed: true,
+    applied: true,
+    provider: providerConfig.provider,
+    base_url: providerConfig.base_url,
+    api_key_ref: providerConfig.api_key_ref,
+    api_key_configured: true,
+    max_output_tokens: providerConfig.max_output_tokens,
+    models: providerDefinitions(),
+  };
+}
 const replayCounts = new Map();
 
 function actorFor() {
@@ -249,6 +302,8 @@ function principal(key) {
         'documents:read', 'documents:write',
         'tools:read', 'plugins:read', 'plugins:write',
         'approvals:read', 'approvals:write',
+        'audit:read', 'credentials:read', 'credentials:write',
+        'providers:read', 'providers:write',
       ],
     };
   }
@@ -326,7 +381,31 @@ const server = createServer(async (request, response) => {
   if (!actor) return send(response, 401, { error: 'unauthorized' });
 
   if (request.method === 'GET' && url.pathname === '/v1/me') return send(response, 200, actor);
-  if (request.method === 'GET' && url.pathname === '/v1/models') return send(response, 200, [model]);
+  if (request.method === 'GET' && url.pathname === '/v1/models') return send(response, 200, providerDefinitions());
+  if (request.method === 'GET' && url.pathname === '/v1/provider') {
+    if (!actor.scopes.includes('providers:read')) return send(response, 403, { code: 'forbidden' });
+    return send(response, 200, providerView());
+  }
+  if (request.method === 'PUT' && url.pathname === '/v1/provider') {
+    if (!actor.scopes.includes('providers:write')) return send(response, 403, { code: 'forbidden' });
+    if (request.headers['if-match'] !== `"${providerConfig.revision}"`) {
+      return send(response, 412, { code: 'version_conflict' });
+    }
+    const input = await body(request);
+    providerConfig = {
+      revision: providerConfig.revision + 1,
+      provider: input.provider,
+      base_url: input.base_url,
+      api_key_ref: input.api_key_ref ?? '',
+      max_output_tokens: input.max_output_tokens,
+      models: input.models ?? [],
+    };
+    return send(response, 200, providerView());
+  }
+  if (request.method === 'POST' && url.pathname === '/v1/provider/models') {
+    if (!actor.scopes.includes('providers:write')) return send(response, 403, { code: 'forbidden' });
+    return send(response, 200, { models: ['test-model', 'extra-model'] });
+  }
   if (request.method === 'GET' && url.pathname === '/v1/assistants') return send(response, 200, [assistant]);
 
   if (request.method === 'POST' && url.pathname === '/v1/assistants') {
@@ -519,8 +598,53 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === 'GET' && url.pathname === '/v1/audit-events') {
+    if (!actor.scopes.includes('audit:read')) return send(response, 403, { code: 'forbidden' });
     const runId = url.searchParams.get('run_id');
-    return send(response, 200, auditEvents.filter((event) => !runId || event.run_id === runId));
+    const action = url.searchParams.get('action');
+    const targetId = url.searchParams.get('target_id');
+    const limit = Number(url.searchParams.get('limit') || 0);
+    let events = auditEvents.filter((event) =>
+      (!runId || event.run_id === runId) &&
+      (!action || event.action === action) &&
+      (!targetId || event.target_id === targetId),
+    );
+    if (limit > 0) events = events.slice(0, limit);
+    return send(response, 200, events);
+  }
+
+  if (request.method === 'GET' && url.pathname === '/v1/credentials') {
+    if (!actor.scopes.includes('credentials:read')) return send(response, 403, { code: 'forbidden' });
+    return send(response, 200, credentials);
+  }
+  if (request.method === 'POST' && url.pathname === '/v1/credentials') {
+    if (!actor.scopes.includes('credentials:write')) return send(response, 403, { code: 'forbidden' });
+    const input = await body(request);
+    const now = new Date();
+    const credential = {
+      id: crypto.randomUUID(),
+      principal_id: input.principal_id || `service-${credentials.length + 1}`,
+      role: input.role,
+      scopes: input.scopes ?? [],
+      expires_at: input.expires_at || new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      revoked_at: null,
+      created_at: now.toISOString(),
+    };
+    credentials.push(credential);
+    return send(response, 201, { credential, api_key: `uai_test_${crypto.randomUUID()}` });
+  }
+  const credentialMatch = url.pathname.match(/^\/v1\/credentials\/([^/]+)\/(rotate|revoke)$/);
+  if (credentialMatch && request.method === 'POST') {
+    if (!actor.scopes.includes('credentials:write')) return send(response, 403, { code: 'forbidden' });
+    const credential = credentials.find((item) => item.id === credentialMatch[1]);
+    if (!credential) return send(response, 404, { code: 'not_found' });
+    if (credentialMatch[2] === 'rotate') {
+      const input = await body(request);
+      credential.expires_at =
+        input.expires_at || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      return send(response, 200, { credential, api_key: `uai_test_${crypto.randomUUID()}` });
+    }
+    credential.revoked_at = new Date().toISOString();
+    return send(response, 200, { status: 'revoked' });
   }
 
   if (request.method === 'GET' && url.pathname === '/v1/documents') {

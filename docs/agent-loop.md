@@ -17,7 +17,7 @@ are the IDs selected in the assistant version. The runtime still intersects:
 - effective registry, connector allowlist and `ToolPolicyDirective` policy.
 
 Only `read_only` tools with `builtin`/`http` executors are offered to the model
-at this stage. The mutant tools stay out of the loop until M4-10 connects
+at this stage. Mutating tools remain outside the model loop; completing the flow requires
 approval and resumption of the run; they are never performed for a simple
 model request.
 

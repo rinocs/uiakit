@@ -65,6 +65,196 @@
         }
       }
     },
+    "/internal/v1/provider/state": {
+      "get": {
+        "summary": "Provider State",
+        "operationId": "provider_state_internal_v1_provider_state_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderState"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/v1/provider/validate": {
+      "post": {
+        "summary": "Validate Provider",
+        "operationId": "validate_provider_internal_v1_provider_validate_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderConfig"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderValidation"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/v1/provider/apply": {
+      "post": {
+        "summary": "Apply Provider",
+        "operationId": "apply_provider_internal_v1_provider_apply_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderConfig"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderState"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/v1/provider/models": {
+      "post": {
+        "summary": "List Provider Models",
+        "operationId": "list_provider_models_internal_v1_provider_models_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderDiscoveryConfig"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDiscovery"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/v1/tools": {
       "get": {
         "summary": "Tool Catalog",
@@ -946,7 +1136,10 @@
           },
           "provider": {
             "type": "string",
-            "const": "openai-compatible",
+            "enum": [
+              "openai-compatible",
+              "ollama"
+            ],
             "title": "Provider",
             "default": "openai-compatible"
           },
@@ -1010,7 +1203,10 @@
           },
           "provider": {
             "type": "string",
-            "const": "openai-compatible",
+            "enum": [
+              "openai-compatible",
+              "ollama"
+            ],
             "title": "Provider",
             "default": "openai-compatible"
           },
@@ -1053,6 +1249,22 @@
           "capabilities"
         ],
         "title": "ModelDefinition"
+      },
+      "ModelDiscovery": {
+        "properties": {
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Models"
+          }
+        },
+        "type": "object",
+        "required": [
+          "models"
+        ],
+        "title": "ModelDiscovery"
       },
       "PluginConfiguration": {
         "properties": {
@@ -1104,6 +1316,200 @@
           "config"
         ],
         "title": "PluginSetting"
+      },
+      "ProviderConfig": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision",
+            "default": 0
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "openai-compatible",
+              "ollama"
+            ],
+            "title": "Provider"
+          },
+          "base_url": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Base Url"
+          },
+          "api_key_ref": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Api Key Ref",
+            "default": ""
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "maximum": 8192.0,
+            "minimum": 1.0,
+            "title": "Max Output Tokens",
+            "default": 1024
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderModelInput"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Models"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "provider",
+          "base_url",
+          "models"
+        ],
+        "title": "ProviderConfig"
+      },
+      "ProviderDiscoveryConfig": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "openai-compatible",
+              "ollama"
+            ],
+            "title": "Provider"
+          },
+          "base_url": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Base Url"
+          },
+          "api_key": {
+            "type": "string",
+            "title": "Api Key",
+            "default": ""
+          },
+          "api_key_ref": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Api Key Ref",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "provider",
+          "base_url"
+        ],
+        "title": "ProviderDiscoveryConfig"
+      },
+      "ProviderModelInput": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Id"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "tool_calling",
+                "structured_output"
+              ]
+            },
+            "type": "array",
+            "uniqueItems": true,
+            "title": "Capabilities",
+            "default": []
+          },
+          "context_window": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Window"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "ProviderModelInput"
+      },
+      "ProviderState": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "openai-compatible",
+              "ollama"
+            ],
+            "title": "Provider"
+          },
+          "base_url": {
+            "type": "string",
+            "title": "Base Url"
+          },
+          "api_key_ref": {
+            "type": "string",
+            "title": "Api Key Ref"
+          },
+          "api_key_configured": {
+            "type": "boolean",
+            "title": "Api Key Configured"
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "title": "Max Output Tokens"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelDefinition-Output"
+            },
+            "type": "array",
+            "title": "Models"
+          }
+        },
+        "type": "object",
+        "required": [
+          "revision",
+          "provider",
+          "base_url",
+          "api_key_ref",
+          "api_key_configured",
+          "max_output_tokens",
+          "models"
+        ],
+        "title": "ProviderState"
+      },
+      "ProviderValidation": {
+        "properties": {
+          "api_key_configured": {
+            "type": "boolean",
+            "title": "Api Key Configured"
+          }
+        },
+        "type": "object",
+        "required": [
+          "api_key_configured"
+        ],
+        "title": "ProviderValidation"
       },
       "RetrievalTargetInput": {
         "properties": {

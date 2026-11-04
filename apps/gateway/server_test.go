@@ -30,6 +30,8 @@ type memoryStore struct {
 	widgetMu        sync.Mutex
 	widgetTokens    map[string]WidgetToken
 	widgetDigests   map[string]string
+	providerMu      sync.Mutex
+	providerInUse   map[string]int
 }
 
 func (s *memoryStore) AuditEvents(_ context.Context, filter AuditFilter) ([]AuditEvent, error) {
@@ -134,6 +136,32 @@ func (s *memoryStore) Finish(_ context.Context, _ Run, events []Event, status st
 }
 
 type roundTrip func(*http.Request) (*http.Response, error)
+
+func TestRunReportsUnsupportedModelCapabilities(t *testing.T) {
+	for _, code := range []string{"tool_calling_unsupported", "structured_output_unsupported", "private_diagnostic"} {
+		t.Run(code, func(t *testing.T) {
+			_, s := setup(t)
+			s.client.Transport = roundTrip(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 422, Header: http.Header{},
+					Body: io.NopCloser(strings.NewReader(`{"detail":"` + code + `"}`))}, nil
+			})
+			r := httptest.NewRequest("POST", "/v1/conversations/00000000-0000-4000-8000-000000000002/messages",
+				strings.NewReader(`{"content":"ciao"}`))
+			r.Header.Set("Authorization", "Bearer test-key")
+			r.Header.Set("Idempotency-Key", "unsupported-tools")
+			r.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, r)
+			status, expected := 422, code
+			if code == "private_diagnostic" {
+				status, expected = 502, "runtime_unavailable"
+			}
+			if w.Code != status || !strings.Contains(w.Body.String(), `"error":"`+expected+`"`) {
+				t.Fatalf("%d %s", w.Code, w.Body)
+			}
+		})
+	}
+}
 
 func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 func setup(t *testing.T) (*memoryStore, *server) {
@@ -370,6 +398,41 @@ func (*memoryStore) CreateKnowledgeBaseVersion(context.Context, string, int, Kno
 func (*memoryStore) Models(context.Context) ([]ModelDefinition, error) {
 	return []ModelDefinition{{ID: "test", Provider: "openai-compatible", Capabilities: []string{"chat", "streaming"}}}, nil
 }
+
+func (*memoryStore) SyncModels(context.Context, []ModelDefinition) error { return nil }
+
+func (s *memoryStore) AssistantsUsingModel(_ context.Context, model string) (int, error) {
+	s.providerMu.Lock()
+	defer s.providerMu.Unlock()
+	return s.providerInUse[model], nil
+}
+
+func (*memoryStore) ProviderProfiles(context.Context) ([]ProviderProfile, error) {
+	return []ProviderProfile{}, nil
+}
+
+func (*memoryStore) ProviderProfile(context.Context, string) (ProviderProfile, error) {
+	return ProviderProfile{}, ErrNotFound
+}
+
+func (*memoryStore) CreateProviderProfile(_ context.Context, profile ProviderProfile) (ProviderProfile, error) {
+	return profile, nil
+}
+
+func (*memoryStore) UpdateProviderProfile(context.Context, string, int, ProviderProfile) (ProviderProfile, error) {
+	return ProviderProfile{}, ErrNotFound
+}
+
+func (*memoryStore) DeleteProviderProfile(context.Context, string) error { return nil }
+
+func (*memoryStore) SetProviderSecret(context.Context, string, ProviderSecret) (ProviderProfile, error) {
+	return ProviderProfile{}, ErrNotFound
+}
+
+func (*memoryStore) ProviderAppliedRevision(context.Context) (int64, error) { return 0, nil }
+
+func (*memoryStore) MarkProviderApplied(context.Context, int64) error { return nil }
+
 func (*memoryStore) Assistant(context.Context, string) (Assistant, error) {
 	return Assistant{}, ErrNotFound
 }

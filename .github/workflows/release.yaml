@@ -41,6 +41,13 @@ jobs:
           test "$version" = "$(cat VERSION)"
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
+      - name: Scan reviewed Git history for secrets
+        run: >-
+          docker run --rm -v "$PWD:/repo:ro"
+          ghcr.io/gitleaks/gitleaks@sha256:b5918eb91b8d2473cec722f066abb4352e4ffdc4ec9f4283ec143aba9ec9ebc4
+          git /repo --redact --no-banner --log-opts=--all
+          --gitleaks-ignore-path /repo/.gitleaksignore
+
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.1'
@@ -102,6 +109,16 @@ jobs:
 
       - name: Prepare SDK and plugin packages
         run: python3 scripts/release.py packages --output release/packages
+
+      - name: Scan exported source artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir /tmp/uai-reviewed-source
+          tar -xzf "release/packages/universal-ai-kit-${VERSION}-src.tar.gz" -C /tmp/uai-reviewed-source
+          docker run --rm -v /tmp/uai-reviewed-source:/source:ro \
+            ghcr.io/gitleaks/gitleaks@sha256:b5918eb91b8d2473cec722f066abb4352e4ffdc4ec9f4283ec143aba9ec9ebc4 \
+            dir /source --redact --no-banner
 
       - name: Build versioned images and record digests
         run: python3 scripts/release.py images --output release

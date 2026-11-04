@@ -8,7 +8,7 @@ never `.env` or credentials.
 ## Backups
 
 ```bash
-cp .env.example .env # configure secrets as usual
+python3 scripts/bootstrap.py # new installations only; preserve existing secrets
 deploy/backup.sh --output backups/$(date -u +%Y%m%dT%H%M%SZ)
 ```
 

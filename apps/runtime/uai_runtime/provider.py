@@ -99,6 +99,8 @@ class OpenAIProvider:
                             raise ProviderError('unsupported_tool_call')
                         raw_calls = delta.get('tool_calls')
                         if raw_calls is not None:
+                            if finished and raw_calls:
+                                raise ProviderError('invalid_delta')
                             if not isinstance(raw_calls, list) or len(raw_calls) > 8:
                                 raise ProviderError('invalid_tool_call')
                             calls = []
@@ -122,7 +124,8 @@ class OpenAIProvider:
                                 yield ModelChunk(tool_calls=tuple(calls))
                         text = delta.get('content')
                         if text is not None:
-                            if not isinstance(text, str) or finished:
+                            # OpenRouter repeats an empty delta in its final usage event.
+                            if not isinstance(text, str) or (finished and text):
                                 raise ProviderError('invalid_delta')
                             if text:
                                 yield ModelChunk(text=text)

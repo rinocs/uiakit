@@ -2,7 +2,7 @@
   "name": "@universal-ai-kit/console",
   "version": "0.1.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
     "predev": "npm --prefix ../../packages/sdk-typescript run build",

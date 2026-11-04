@@ -12,6 +12,15 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        if self.path == '/v1/models':
+            data = json.dumps({'data': [{'id': 'test'}, {'id': 'test2'}]}).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            self.wfile.flush()
+            return
         self.send_response(200)
         self.send_header('Content-Length', '2')
         self.end_headers()

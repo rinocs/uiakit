@@ -28,6 +28,8 @@ The `_FILE` variants of the sensitive variables and the rotation procedure are i
 | approvals:write | no | yes | yes |
 | credentials:read | no | no | yes |
 | credentials:write | no | no | yes |
+| providers:read | no | no | yes |
+| providers:write | no | no | yes |
 | audit:read | no | no | yes |
 
 The credential requires an explicit subset of the role's permissions: the role

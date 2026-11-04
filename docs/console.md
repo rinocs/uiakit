@@ -17,7 +17,7 @@ Random ID. It is never placed in HTML, localStorage, sessionStorage, or URL.
 ## Roles
 
 - `admin`: all console operations.
-- `operator`: write assistants/models, without credentials/audit.
+- `operator`: write assistants/models, without credentials, audit or provider configuration.
 - `reader`: read only; edit forms are disabled/hidden.
 - `widget`: access denied.
 
@@ -33,6 +33,15 @@ missing UI control does not grant scope.
   Each save creates a new version with `If-Match`; a conflict of
   version is shown without overwriting.
 - Public model catalog.
+- Provider configuration for admins: provider kind, base URL, secret reference,
+  max output tokens and the model catalog used by assistants. Model discovery
+  queries the provider through the runtime; secrets are never stored or shown.
+- Credential management for admins: list, create, rotate and revoke. The new
+  key is shown once in the action response and never in the URL; role and scopes
+  remain validated by the gateway, and the current credential cannot be rotated
+  or revoked.
+- Audit log for admins with action, run and target filters plus a bounded limit.
+- Gateway health and version on the dashboard.
 
 Also available are KB/documents (upload, job, reindex, export, source),
 read-only tools, installed plugins, and immutable binding approvals.

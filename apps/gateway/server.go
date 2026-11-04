@@ -23,6 +23,7 @@ import (
 
 type Config struct {
 	APIKeyHash, InternalKey, RuntimeURL, Model string
+	SecretKey                                  *secretBox
 	RateLimit                                  int
 	RateLimitPerPrincipal                      int
 	WidgetOrigins                              []string
@@ -38,17 +39,18 @@ type activeRun struct {
 }
 
 type server struct {
-	store          Store
-	config         Config
-	client         *http.Client
-	pluginMu       sync.Mutex
-	activeMu       sync.Mutex
-	active         map[string]*activeRun
-	globalLimiter  *rateLimiter
-	principalLimit *rateLimiter
-	widgetLimiter  *rateLimiter
-	handler        http.Handler
-	telemetry      *Telemetry
+	store           Store
+	config          Config
+	client          *http.Client
+	pluginMu        sync.Mutex
+	providerApplyMu sync.Mutex
+	activeMu        sync.Mutex
+	active          map[string]*activeRun
+	globalLimiter   *rateLimiter
+	principalLimit  *rateLimiter
+	widgetLimiter   *rateLimiter
+	handler         http.Handler
+	telemetry       *Telemetry
 }
 
 func NewServer(store Store, c Config) *server {
@@ -120,11 +122,13 @@ func NewServer(store Store, c Config) *server {
 		s.approvalRoutes(r)
 		s.auditRoutes(r)
 		s.credentialRoutes(r)
+		s.providerRoutes(r)
 		s.widgetRoutes(r)
 		s.pluginRoutes(r)
 	})
 	s.internalToolExecutionRoutes(r)
 	s.internalRetentionRoutes(r)
+	s.internalProviderRoutes(r)
 	s.handler = r
 	return s
 }

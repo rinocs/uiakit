@@ -22,7 +22,7 @@ are supported, clustering with multiple gateways on the same database is not.
 ## Clean installation
 
 ```bash
-cp .env.example .env
+python3 scripts/bootstrap.py # new installations only
 # generate at least POSTGRES_PASSWORD and INTERNAL_API_KEY
 # set UAI_API_KEY_SHA256 = sha256 of the admin API key, or use the
 # bootstrap credential expected from auth.md
