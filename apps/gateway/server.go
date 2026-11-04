@@ -360,6 +360,16 @@ func (s *server) run(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		if resp.StatusCode == http.StatusUnprocessableEntity {
+			var detail struct {
+				Detail string `json:"detail"`
+			}
+			if json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&detail) == nil &&
+				(detail.Detail == ErrToolCallingUnsupported.Error() || detail.Detail == ErrStructuredOutputUnsupported.Error()) {
+				problem(w, http.StatusUnprocessableEntity, detail.Detail)
+				return
+			}
+		}
 		problem(w, 502, "runtime_unavailable")
 		return
 	}
@@ -540,6 +550,10 @@ func problem(w http.ResponseWriter, status int, code string) {
 func storeError(w http.ResponseWriter, e error) {
 	if errors.Is(e, ErrDirectiveRuntimeUnavailable) {
 		problem(w, 503, "runtime_unavailable")
+	} else if errors.Is(e, ErrToolCallingUnsupported) {
+		problem(w, 422, ErrToolCallingUnsupported.Error())
+	} else if errors.Is(e, ErrStructuredOutputUnsupported) {
+		problem(w, 422, ErrStructuredOutputUnsupported.Error())
 	} else if errors.Is(e, ErrInvalidConfig) {
 		problem(w, 422, "invalid_configuration")
 	} else if errors.Is(e, ErrPreconditionFailed) {
