@@ -172,6 +172,7 @@ type ProviderStore interface {
 	SetProviderSecret(context.Context, string, ProviderSecret) (ProviderProfile, error)
 	ProviderAppliedRevision(context.Context) (int64, error)
 	MarkProviderApplied(context.Context, int64) error
+	ProviderConfiguration(context.Context) (ProviderConfiguration, error)
 }
 
 type ApprovalStore interface {

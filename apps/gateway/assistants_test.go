@@ -12,9 +12,11 @@ import (
 
 type versionStore struct {
 	memoryStore
-	assistant Assistant
-	versions  []Assistant
-	models    []ModelDefinition
+	assistant       Assistant
+	versions       []Assistant
+	models         []ModelDefinition
+	providerManaged bool
+	providerConfig  ProviderConfiguration
 }
 
 func (s *versionStore) Models(ctx context.Context) ([]ModelDefinition, error) {
@@ -22,6 +24,13 @@ func (s *versionStore) Models(ctx context.Context) ([]ModelDefinition, error) {
 		return s.models, nil
 	}
 	return s.memoryStore.Models(ctx)
+}
+
+func (s *versionStore) ProviderConfiguration(ctx context.Context) (ProviderConfiguration, error) {
+	if s.providerManaged {
+		return s.providerConfig, nil
+	}
+	return s.memoryStore.ProviderConfiguration(ctx)
 }
 
 func (s *versionStore) Assistant(_ context.Context, id string) (Assistant, error) {

@@ -142,6 +142,10 @@ func (s *providerAuthStore) MarkProviderApplied(_ context.Context, revision int6
 	return nil
 }
 
+func (s *providerAuthStore) ProviderConfiguration(context.Context) (ProviderConfiguration, error) {
+	return ProviderConfiguration{}, ErrNotFound
+}
+
 func (s *providerAuthStore) SyncModels(_ context.Context, models []ModelDefinition) error {
 	s.providerMu.Lock()
 	defer s.providerMu.Unlock()

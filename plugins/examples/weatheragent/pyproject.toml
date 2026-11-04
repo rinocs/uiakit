@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+name = "uai-plugin-weatheragent"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["uai-plugin-sdk>=0.1.0,<1"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

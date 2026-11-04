@@ -433,6 +433,10 @@ func (*memoryStore) ProviderAppliedRevision(context.Context) (int64, error) { re
 
 func (*memoryStore) MarkProviderApplied(context.Context, int64) error { return nil }
 
+func (*memoryStore) ProviderConfiguration(context.Context) (ProviderConfiguration, error) {
+	return ProviderConfiguration{}, ErrNotFound
+}
+
 func (*memoryStore) Assistant(context.Context, string) (Assistant, error) {
 	return Assistant{}, ErrNotFound
 }

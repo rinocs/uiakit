@@ -44,6 +44,7 @@ type server struct {
 	client          *http.Client
 	pluginMu        sync.Mutex
 	providerApplyMu sync.Mutex
+	configurationMu sync.RWMutex
 	activeMu        sync.Mutex
 	active          map[string]*activeRun
 	globalLimiter   *rateLimiter

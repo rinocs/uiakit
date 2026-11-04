@@ -355,3 +355,7 @@ func (s *PostgresStore) MarkProviderApplied(ctx context.Context, revision int64)
 	_, err := s.pool.Exec(ctx, `UPDATE provider_revision SET applied_revision=$1 WHERE singleton AND applied_revision<$1`, revision)
 	return err
 }
+
+func (s *PostgresStore) ProviderConfiguration(ctx context.Context) (ProviderConfiguration, error) {
+	return ProviderConfiguration{}, ErrNotFound
+}
