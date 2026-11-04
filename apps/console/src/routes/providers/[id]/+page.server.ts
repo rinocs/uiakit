@@ -33,4 +33,32 @@ export const actions: Actions = {
     }
     throw redirect(303, `/providers/${params.id}?saved=1`);
   },
+  saveSecret: async ({ request, locals, params }) => {
+    if (!canManage(locals)) return fail(403, { error: 'forbidden' });
+    const data = await request.formData();
+    const value = String(data.get('value') ?? '').trim();
+    const ref = String(data.get('ref') ?? '').trim();
+    try {
+      const client = clientFor(locals.session!.apiKey);
+      if (value) {
+        await (client.providers as any).setSecret(params.id, { source: 'stored', value });
+      } else if (ref) {
+        await (client.providers as any).setSecret(params.id, { source: 'env', ref });
+      } else {
+        return fail(422, { error: 'Inserisci una chiave oppure una variabile d\'ambiente.' });
+      }
+    } catch (e) {
+      return fail(502, { error: providerMessage(e) });
+    }
+    throw redirect(303, `/providers/${params.id}?saved=secret`);
+  },
+  clearSecret: async ({ request, locals, params }) => {
+    if (!canManage(locals)) return fail(403, { error: 'forbidden' });
+    try {
+      await (clientFor(locals.session!.apiKey).providers as any).clearSecret(params.id);
+    } catch (e) {
+      return fail(502, { error: providerMessage(e) });
+    }
+    throw redirect(303, `/providers/${params.id}?saved=secret`);
+  },
 };

@@ -13,4 +13,17 @@
     <button type="submit">Salva provider</button>
   </form>
   {#if data.saved}<p role="status">Configurazione provider salvata.</p>{/if}
+  <section>
+    <h2>Credenziali</h2>
+    <p>{data.profile.secret_configured ? 'secret configurato' : 'secret non configurato'}</p>
+    <form method="POST" action="?/saveSecret">
+      <label>Chiave API <input type="password" name="value" /></label>
+      <label>Variabile d'ambiente <input name="ref" /></label>
+      <button type="submit" formaction="?/saveSecret" name="action" value="key">Salva chiave</button>
+      <button type="submit" formaction="?/saveSecret" name="action" value="env">Usa variabile d'ambiente</button>
+    </form>
+    <form method="POST" action="?/clearSecret">
+      <button type="submit">Rimuovi chiave</button>
+    </form>
+  </section>
 {/if}
