@@ -11,6 +11,7 @@ import (
 
 var ErrNotFound = errors.New("not_found")
 var ErrConflict = errors.New("conflict")
+var ErrTooManyProfiles = errors.New("too_many_profiles")
 var ErrExportTooLarge = errors.New("export_too_large")
 
 type Message struct {
@@ -146,10 +147,31 @@ type AuditStore interface {
 	AuditEvents(context.Context, AuditFilter) ([]AuditEvent, error)
 }
 
+type ProviderProfile struct {
+	ID, Name, Provider, BaseURL, SecretRef      string
+	SecretCipher, SecretNonce                   []byte
+	SecretKeyVersion, MaxOutputTokens, Revision int
+	ConfigSeq                                   int64
+	Models                                      []ProviderModel
+}
+
+type ProviderSecret struct {
+	Source        string
+	Cipher, Nonce []byte
+	KeyVersion    int
+	Ref           string
+}
+
 type ProviderStore interface {
-	ProviderConfiguration(context.Context) (ProviderConfiguration, error)
-	SaveProviderConfiguration(context.Context, int, ProviderConfiguration) (ProviderConfiguration, error)
 	AssistantsUsingModel(context.Context, string) (int, error)
+	ProviderProfiles(context.Context) ([]ProviderProfile, error)
+	ProviderProfile(context.Context, string) (ProviderProfile, error)
+	CreateProviderProfile(context.Context, ProviderProfile) (ProviderProfile, error)
+	UpdateProviderProfile(context.Context, string, int, ProviderProfile) (ProviderProfile, error)
+	DeleteProviderProfile(context.Context, string) error
+	SetProviderSecret(context.Context, string, ProviderSecret) (ProviderProfile, error)
+	ProviderAppliedRevision(context.Context) (int64, error)
+	MarkProviderApplied(context.Context, int64) error
 }
 
 type ApprovalStore interface {

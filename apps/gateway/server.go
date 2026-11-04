@@ -23,6 +23,7 @@ import (
 
 type Config struct {
 	APIKeyHash, InternalKey, RuntimeURL, Model string
+	SecretKey                                  *secretBox
 	RateLimit                                  int
 	RateLimitPerPrincipal                      int
 	WidgetOrigins                              []string
@@ -38,12 +39,11 @@ type activeRun struct {
 }
 
 type server struct {
-	store    Store
-	config   Config
-	client   *http.Client
-	pluginMu sync.Mutex
-	// The supported single gateway serializes provider changes with assistant writes.
-	configurationMu sync.RWMutex
+	store           Store
+	config          Config
+	client          *http.Client
+	pluginMu        sync.Mutex
+	providerApplyMu sync.Mutex
 	activeMu        sync.Mutex
 	active          map[string]*activeRun
 	globalLimiter   *rateLimiter
@@ -219,8 +219,6 @@ func (s *server) createAssistant(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &raw) {
 		return
 	}
-	s.configurationMu.RLock()
-	defer s.configurationMu.RUnlock()
 	a, e := applyAssistantPatch(defaultAssistant(), raw)
 	if e != nil {
 		storeError(w, e)
@@ -360,20 +358,6 @@ func (s *server) run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusUnprocessableEntity {
-		// Only expose known validation codes, never arbitrary runtime diagnostics.
-		data, err := io.ReadAll(io.LimitReader(resp.Body, 4097))
-		if err == nil && len(data) <= 4096 {
-			switch runtimeErrorCode(data) {
-			case ErrToolCallingUnsupported.Error():
-				storeError(w, ErrToolCallingUnsupported)
-				return
-			case ErrStructuredOutputUnsupported.Error():
-				storeError(w, ErrStructuredOutputUnsupported)
-				return
-			}
-		}
-	}
 	if resp.StatusCode != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
 		problem(w, 502, "runtime_unavailable")
 		return
@@ -553,11 +537,7 @@ func problem(w http.ResponseWriter, status int, code string) {
 	respond(w, status, map[string]string{"error": code})
 }
 func storeError(w http.ResponseWriter, e error) {
-	if errors.Is(e, ErrToolCallingUnsupported) {
-		problem(w, 422, "tool_calling_unsupported")
-	} else if errors.Is(e, ErrStructuredOutputUnsupported) {
-		problem(w, 422, "structured_output_unsupported")
-	} else if errors.Is(e, ErrDirectiveRuntimeUnavailable) {
+	if errors.Is(e, ErrDirectiveRuntimeUnavailable) {
 		problem(w, 503, "runtime_unavailable")
 	} else if errors.Is(e, ErrInvalidConfig) {
 		problem(w, 422, "invalid_configuration")

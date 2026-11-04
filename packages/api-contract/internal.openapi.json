@@ -1387,6 +1387,11 @@
             "minLength": 1,
             "title": "Base Url"
           },
+          "api_key": {
+            "type": "string",
+            "title": "Api Key",
+            "default": ""
+          },
           "api_key_ref": {
             "type": "string",
             "maxLength": 80,

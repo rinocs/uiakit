@@ -174,6 +174,8 @@ def create_app(api_key: str, provider: ModelProvider, *, max_output_chars: int =
             body: ProviderDiscoveryConfig,
             authorization: Annotated[str, Header()] = '') -> ModelDiscovery:
         require_internal(authorization)
+        if body.api_key and body.api_key_ref:
+            raise HTTPException(422, detail='invalid_configuration')
         try:
             found = await discover_models(body, app.state.egress,
                                           transport=app.state.discovery_transport)

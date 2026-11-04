@@ -165,8 +165,9 @@ docker rm -f uai-mig-test
 ```
 
 Expected output, in order: `default|openai-compatible|https://api.example.com/v1|PROVIDER_API_KEY_TEAM|3|3`;
-then `default|alpha|0|0` and `default|beta|0|8192` (Postgres reports an empty
-array length as NULL); then `3|0`; then `17`.
+then `default|alpha||0` and `default|beta|1|8192` (Postgres reports the length of
+an empty array as NULL, so alpha's capability column is blank; beta carries one
+capability); then `3|0`; then `17`.
 
 - [ ] **Step 3: Commit**
 
@@ -321,6 +322,7 @@ git commit -m "feat(provider): add AES-GCM credential box"
 - Modify: `apps/gateway/types.go:149-153` (`ProviderStore` interface: add methods, keep the two legacy ones)
 - Modify: `apps/gateway/provider_store.go` (add profile methods, implement the alias rule)
 - Modify: `apps/gateway/server.go:24-34` (`Config`), `apps/gateway/main.go` (load `UAI_SECRET_KEY`)
+- Modify: `apps/gateway/provider_test.go` (the fake store must implement the new interface methods so the package compiles; Task 4 replaces it)
 - Test: `apps/gateway/provider_store_test.go`
 
 **Interfaces:**
@@ -344,7 +346,9 @@ git commit -m "feat(provider): add AES-GCM credential box"
 
 `apps/gateway/provider_store_test.go`, skipped when `UAI_TEST_DATABASE_URL` is
 unset (`providerTestStore(t)` calls `OpenStore`, truncates
-`provider_profile_models`, `provider_profiles`, `provider_revision`, `assistants`):
+`provider_profile_models`, `provider_profiles` and `assistants`, and resets the
+singleton with `UPDATE provider_revision SET revision=1, applied_revision=0` so the
+counter is deterministic without ever removing the row):
 
 ```go
 func TestProviderStoreProfiles(t *testing.T) {
@@ -383,7 +387,7 @@ func TestProviderStoreProfiles(t *testing.T) {
 	}
 
 	stored, err := store.SetProviderSecret(ctx, "openai", ProviderSecret{
-		Source: "stored", Cipher: []byte("cipher"), Nonce: bytes.Repeat([]byte{1}, 12), KeyVersion: 1,
+		Source: "stored", Cipher: bytes.Repeat([]byte{7}, 32), Nonce: bytes.Repeat([]byte{1}, 12), KeyVersion: 1,
 	})
 	if err != nil || len(stored.SecretCipher) == 0 || stored.SecretRef != "" || stored.Revision != 3 {
 		t.Fatalf("stored secret: %+v %v", stored, err)
@@ -460,28 +464,25 @@ Each mutation records an audit row in the same transaction
 details limited to `profile_id`, `revision`, `kind`, `base_url`, `models`,
 `secret_source`.
 
-`AssistantsUsingModel(key)` counts `model=$1`, plus the bare alias
-`strings.TrimPrefix(key, "default/")` when the key starts with `default/`:
+`AssistantsUsingModel(key)` counts `model=$1`, plus the bare alias for keys under
+the default profile (legacy versions store the model without a prefix):
 
 ```go
 func (s *PostgresStore) AssistantsUsingModel(ctx context.Context, model string) (int, error) {
+	alias := ""
+	if strings.HasPrefix(model, "default/") {
+		alias = strings.TrimPrefix(model, "default/")
+	}
 	var count int
 	err := s.pool.QueryRow(ctx,
 		`SELECT count(*) FROM assistants WHERE model=$1 OR ($2<>'' AND model=$2)`,
-		model, strings.TrimPrefix(model, "default/")).Scan(&count)
+		model, alias).Scan(&count)
 	return count, err
 }
 ```
 
-Note that a non-`default` key leaves the alias empty because `TrimPrefix` returns
-the key unchanged when the prefix is absent, so guard the second parameter:
-
-```go
-alias := ""
-if strings.HasPrefix(model, "default/") {
-	alias = strings.TrimPrefix(model, "default/")
-}
-```
+The alias must be computed explicitly: calling `strings.TrimPrefix` inline would
+return the key unchanged for every other profile and count unrelated assistants.
 
 In `main.go`, after the existing `DATABASE_URL` boot secret:
 
@@ -626,12 +627,18 @@ git commit -m "feat(provider): add profile CRUD API and plane push"
 
 **Files:**
 - Modify: `apps/gateway/provider.go`
-- Test: `apps/gateway/provider_test.go`
+- Modify: `apps/runtime/uai_runtime/provider_control.py` (`ProviderDiscoveryConfig.api_key`)
+- Modify: `packages/api-contract/internal.openapi.json` (regenerated)
+- Test: `apps/gateway/provider_test.go`, `apps/runtime/tests/test_provider_control.py`
 
 **Interfaces:**
 - Consumes: Task 2 box, Task 3 `SetProviderSecret`, Task 4 `runtimePlane`.
 - Produces: `ProviderSecretInput{Source, Value, Ref string}` and handlers `setProviderCredential`, `clearProviderCredential`, `discoverProfileModels`.
 - Produces routes: `PUT|DELETE /v1/providers/{id}/secret`, `POST /v1/providers/{id}/models/discovery`.
+- Produces: `ProviderDiscoveryConfig.api_key: str = ''`; `discover_models` uses it
+  when non-empty, otherwise resolves `api_key_ref`. The runtime must accept this
+  field in the same task, because the gateway starts sending it here and
+  `ProviderDiscoveryConfig` forbids unknown fields.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -653,6 +660,10 @@ git commit -m "feat(provider): add profile CRUD API and plane push"
   discovery → runtime fake receives `api_key == "sk-live-123"` and `api_key_ref == ""`.
 - `TestProviderDiscoveryEnvRef`: profile with `SecretRef:"PROVIDER_API_KEY_TEAM"` →
   runtime receives that ref and an empty `api_key`.
+- `test_discovery_prefers_inline_api_key` (pytest): a `MockTransport` handler
+  records the `Authorization` header; a discovery config with
+  `api_key='sk-inline'` and `api_key_ref='MODEL_API_KEY'` sends
+  `Bearer sk-inline`.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -675,12 +686,26 @@ value.
 
 `discoverProfileModels` loads the profile, decrypts a stored cipher, and posts
 `{provider, base_url, api_key}` to `/internal/v1/provider/models`; environment
-references post `api_key_ref`.
+references post `api_key_ref`. Add `api_key: str = ''` to
+`ProviderDiscoveryConfig`, keep `_valid_base_url`/`_valid_secret_ref` checks, and
+have `discover_models` send `Authorization: Bearer <api_key>` when it is
+non-empty, falling back to `resolve_api_key(config.api_key_ref)` otherwise.
+Regenerate the internal contract after the model change:
+
+```bash
+cd apps/runtime && python -c "
+import json
+from uai_runtime.app import create_app
+from uai_runtime.provider import OpenAIProvider
+print(json.dumps(create_app('internal-secret', OpenAIProvider('http://provider/v1', '')).openapi(),
+                 indent=2, sort_keys=True))" > /tmp/internal.openapi.json
+cp /tmp/internal.openapi.json packages/api-contract/internal.openapi.json
+```
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-cd apps/gateway && go test ./ -count=1 && go vet ./...
+cd apps/gateway && go test ./ -count=1 && go vet ./... && cd ../runtime && python -m pytest tests/ -q
 ```
 
 Expected: `ok  universal-ai-kit/gateway`.
@@ -744,8 +769,10 @@ PUT maps `ProviderUpdate` onto `ProviderProfileInput` (creating `default` when
 absent) and never rewrites `id`/`kind`; discovery forwards
 `provider/base_url/api_key_ref` unchanged. When no profile exists, keep today's
 `managed:false` behaviour and add the synthetic `default` entry to
-`GET /v1/providers`. Remove `ProviderConfiguration`/`SaveProviderConfiguration`
-from the interface and the store.
+`GET /v1/providers`. Remove the two legacy store methods
+(`ProviderConfiguration`, `SaveProviderConfiguration`) from the interface and the
+store, keeping the `ProviderConfiguration`/`ProviderView` types: they remain the
+legacy API schema.
 
 - [ ] **Step 4: Run the full gateway suite**
 
@@ -771,13 +798,16 @@ git commit -m "feat(provider): push the profile plane and keep the legacy provid
 - Modify: `apps/gateway/models.go` (definition limit, read cap)
 - Modify: `apps/gateway/assistant_store.go` (model lookup, `SyncModels` limit)
 - Modify: `apps/gateway/provider.go` (`removedModelInUse`)
-- Test: `apps/gateway/assistants_test.go`, `apps/gateway/provider_test.go`
+- Modify: `apps/gateway/provider_store.go`, `apps/gateway/types.go` (`ResolveModelKey`)
+- Test: `apps/gateway/assistants_test.go`, `apps/gateway/provider_test.go`, `apps/gateway/provider_store_test.go`
 
 **Interfaces:**
 - Consumes: `AssistantsUsingModel` alias rule from Task 3.
-- Produces: `func resolveModelKey(ctx context.Context, store Store, model string) (string, error)` —
+- Produces: `ProviderStore.ResolveModelKey(context.Context, string) (string, error)` —
   exact `model_configurations` key first, then `"default/" + model`; returns
   `ErrNotFound` when neither exists.
+- Produces: `func resolveModelKey(ctx context.Context, store Store, model string) (string, error)`
+  delegating to the store method, used by assistant validation and `removedModelInUse`.
 - Produces: `const maxProviderDefinitions = 1000`; `SyncModels` and
   `loadRuntimeModels` accept up to that many, and the runtime catalog read is
   capped at 2 MiB.
@@ -809,14 +839,16 @@ Expected: failures on missing keys and limits.
 
 - [ ] **Step 3: Implement the resolution and the limits**
 
-Implement `resolveModelKey` with two `model_configurations` lookups (`SELECT
-definition FROM model_configurations WHERE id=$1`, then the `default/`-prefixed
-key) and return `ErrNotFound` when both miss. Use it in the assistant
+Implement `ProviderStore.ResolveModelKey` in `provider_store.go` with two
+`model_configurations` lookups (`SELECT definition FROM model_configurations WHERE
+id=$1`, then the `default/`-prefixed key) and return `ErrNotFound` when both miss;
+`resolveModelKey` in `models.go` delegates to it. Use it in the assistant
 version-creation validation in `assistant_store.go` and in `removedModelInUse`;
 for a removed key under `default`, the in-use check must also match the bare
-legacy form, which Task 3's `AssistantsUsingModel` already does. Raise
-`maxProviderDefinitions` to 1000 in `models.go`, mirror it in `SyncModels`, and
-raise the catalog read limit from 64 KiB to 2 MiB.
+legacy form, which Task 3's `AssistantsUsingModel` already does. Add the
+`ResolveModelKey` case to `provider_store_test.go` (exact key, fallback,
+missing). Raise `maxProviderDefinitions` to 1000 in `models.go`, mirror it in
+`SyncModels`, and raise the catalog read limit from 64 KiB to 2 MiB.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -830,7 +862,8 @@ Expected: `ok  universal-ai-kit/gateway`.
 
 ```bash
 git add apps/gateway/models.go apps/gateway/assistant_store.go apps/gateway/provider.go \
-  apps/gateway/assistants_test.go apps/gateway/provider_test.go
+  apps/gateway/provider_store.go apps/gateway/types.go \
+  apps/gateway/assistants_test.go apps/gateway/provider_test.go apps/gateway/provider_store_test.go
 git commit -m "feat(provider): resolve namespaced assistant model keys"
 ```
 
@@ -1026,8 +1059,6 @@ git commit -m "feat(provider): route runs across provider profiles"
 - Consumes: Task 9 plane models.
 - Produces: `ProviderPlaneConfig` accepting a payload without `profiles` and
   wrapping it as profile `default` (name `Default`).
-- Produces: `ProviderDiscoveryConfig.api_key: str = ''`; `discover_models` uses it
-  when non-empty, otherwise resolves `api_key_ref`.
 - Produces: `from_env` building a `default` profile with
   `api_key_ref='MODEL_API_KEY'` for `openai-compatible` and `''` for `ollama`.
 
@@ -1035,9 +1066,6 @@ git commit -m "feat(provider): route runs across provider profiles"
 
 - `test_plane_accepts_legacy_single_provider_payload`: validating the pre-change
   payload yields one profile `default` with the same revision and model ids.
-- `test_discovery_prefers_inline_api_key`: transport records the `Authorization`
-  header; body `{'provider':'openai-compatible','base_url':'http://provider/v1','api_key':'sk-inline','api_key_ref':'MODEL_API_KEY'}`
-  → header `Bearer sk-inline`.
 - `test_from_env_builds_default_profile`: with `MODEL_PROVIDER=openai-compatible`
   and `MODEL_NAME=test`, `state_of` reports profile `default`,
   `api_key_ref == 'MODEL_API_KEY'`, and the model key `default/test`.
@@ -1056,7 +1084,7 @@ Expected: validation errors for the legacy payload and the extra field.
 
 Add a `mode='before'` validator on `ProviderPlaneConfig` that rewrites a mapping
 without `profiles` into `{'revision': ..., 'profiles': [{'id': 'default', 'name': 'Default', ...}]}`.
-Extend the discovery config and `discover_models` secret selection. Rewire
+The discovery `api_key` field and its selection already landed in Task 5. Rewire
 `from_env` to build and pass the plane while still passing
 `provider`/`allowed_model`/`model_definition`, so the parameterless test path is
 unchanged. Regenerate the internal snapshot:

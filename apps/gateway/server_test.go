@@ -31,8 +31,6 @@ type memoryStore struct {
 	widgetTokens    map[string]WidgetToken
 	widgetDigests   map[string]string
 	providerMu      sync.Mutex
-	providerConfig  ProviderConfiguration
-	providerManaged bool
 	providerInUse   map[string]int
 }
 
@@ -403,35 +401,38 @@ func (*memoryStore) Models(context.Context) ([]ModelDefinition, error) {
 
 func (*memoryStore) SyncModels(context.Context, []ModelDefinition) error { return nil }
 
-func (s *memoryStore) ProviderConfiguration(context.Context) (ProviderConfiguration, error) {
-	s.providerMu.Lock()
-	defer s.providerMu.Unlock()
-	if !s.providerManaged {
-		return ProviderConfiguration{}, ErrNotFound
-	}
-	return s.providerConfig, nil
-}
-
-func (s *memoryStore) SaveProviderConfiguration(_ context.Context, expected int, config ProviderConfiguration) (ProviderConfiguration, error) {
-	s.providerMu.Lock()
-	defer s.providerMu.Unlock()
-	if s.providerManaged && expected != s.providerConfig.Revision {
-		return config, ErrConflict
-	}
-	if !s.providerManaged && expected != 0 {
-		return config, ErrConflict
-	}
-	config.Revision = expected + 1
-	s.providerConfig = config
-	s.providerManaged = true
-	return config, nil
-}
-
 func (s *memoryStore) AssistantsUsingModel(_ context.Context, model string) (int, error) {
 	s.providerMu.Lock()
 	defer s.providerMu.Unlock()
 	return s.providerInUse[model], nil
 }
+
+func (*memoryStore) ProviderProfiles(context.Context) ([]ProviderProfile, error) {
+	return []ProviderProfile{}, nil
+}
+
+func (*memoryStore) ProviderProfile(context.Context, string) (ProviderProfile, error) {
+	return ProviderProfile{}, ErrNotFound
+}
+
+func (*memoryStore) CreateProviderProfile(_ context.Context, profile ProviderProfile) (ProviderProfile, error) {
+	return profile, nil
+}
+
+func (*memoryStore) UpdateProviderProfile(context.Context, string, int, ProviderProfile) (ProviderProfile, error) {
+	return ProviderProfile{}, ErrNotFound
+}
+
+func (*memoryStore) DeleteProviderProfile(context.Context, string) error { return nil }
+
+func (*memoryStore) SetProviderSecret(context.Context, string, ProviderSecret) (ProviderProfile, error) {
+	return ProviderProfile{}, ErrNotFound
+}
+
+func (*memoryStore) ProviderAppliedRevision(context.Context) (int64, error) { return 0, nil }
+
+func (*memoryStore) MarkProviderApplied(context.Context, int64) error { return nil }
+
 func (*memoryStore) Assistant(context.Context, string) (Assistant, error) {
 	return Assistant{}, ErrNotFound
 }
